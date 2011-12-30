@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 #include <arv.h>
 
 #include <iostream>
@@ -7,86 +7,135 @@
 #include <glib.h>
 #include <glib/gprintf.h>
 
+#include <ros/ros.h>
+#include <ros/time.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
+#include <image_transport/image_transport.h>
+#include <camera_info_manager/camera_info_manager.h>
+
 #define THROW_ERROR(m) throw std::string((m))
 
-typedef struct {
-	GMainLoop *main_loop;
-	int buffer_count;
-} ApplicationData;
-
+// global variables -------------------
 static gboolean cancel = FALSE;
+image_transport::CameraPublisher publisher;
+camera_info_manager::CameraInfoManager *cam_info_manager;
+sensor_msgs::CameraInfo cam_info;
+gint g_width, g_height; // buffer->width and buffer->height not working, so I used a global.
+// ------------------------------------
+
+typedef struct {
+    GMainLoop *main_loop;
+    int buffer_count;
+} ApplicationData;
 
 static void
 set_cancel (int signal)
 {
-	cancel = TRUE;
+    cancel = TRUE;
 }
 
 static void
 new_buffer_cb (ArvStream *stream, ApplicationData *data)
 {
-	ArvBuffer *buffer;
+    ArvBuffer *buffer;
 
-	buffer = arv_stream_pop_buffer (stream);
-	if (buffer != NULL) {
-		if (buffer->status == ARV_BUFFER_STATUS_SUCCESS)
-			data->buffer_count++;
-		/* Image processing here */
-		arv_stream_push_buffer (stream, buffer);
-	}
+    buffer = arv_stream_pop_buffer (stream);
+    if (buffer != NULL) {
+        if (buffer->status == ARV_BUFFER_STATUS_SUCCESS) {
+            data->buffer_count++;
+            int step = g_width; // XXX how to check this?
+            std::vector<uint8_t> this_data(buffer->size);
+            memcpy(&this_data[0], buffer->data, buffer->size);
+
+            sensor_msgs::Image msg;
+            msg.header.stamp = ros::Time::now(); // host timestamps (else buffer->timestamp_ns)
+            msg.header.seq = buffer->frame_id;
+            //      msg.header.frame_id = "0";
+            msg.height = g_height;
+            msg.width = g_width;
+            msg.encoding = "mono8";  // XXX fixme
+            msg.step = step;
+            msg.data = this_data;
+
+            // get current CameraInfo data
+            cam_info = cam_info_manager->getCameraInfo();
+            cam_info.header.stamp = msg.header.stamp;
+            cam_info.header.seq = msg.header.seq;
+            cam_info.header.frame_id = msg.header.frame_id;
+            cam_info.height = g_height;
+            cam_info.width = g_width;
+
+            publisher.publish(msg, cam_info);
+        }
+        arv_stream_push_buffer (stream, buffer);
+    }
 }
 
 static void
 control_lost_cb (ArvGvDevice *gv_device)
 {
-	g_printf ("Control lost\n");
+    g_printf ("Control lost\n");
 
-	cancel = TRUE;
+    cancel = TRUE;
 }
 
 static gboolean
 emit_software_trigger (void *abstract_data)
 {
-	ArvCamera *camera = (ArvCamera*)abstract_data;
+    ArvCamera *camera = (ArvCamera*)abstract_data;
 
-	arv_camera_software_trigger (camera);
+    arv_camera_software_trigger (camera);
 
-	return TRUE;
+    return TRUE;
 }
 
 static gboolean
 periodic_task_cb (void *abstract_data)
 {
-	ApplicationData *data = (ApplicationData*)abstract_data;
+    ApplicationData *data = (ApplicationData*)abstract_data;
 
-	g_printf ("Frame rate = %d Hz\n", data->buffer_count);
-	data->buffer_count = 0;
+    //  g_printf ("Frame rate = %d Hz\n", data->buffer_count);
+    data->buffer_count = 0;
 
-	if (cancel) {
-		g_main_loop_quit (data->main_loop);
-		return FALSE;
-	}
+    if (cancel) {
+        g_main_loop_quit (data->main_loop);
+        return FALSE;
+    }
 
-	return TRUE;
+    return TRUE;
 }
 
 int main(int argc, char** argv) {
     ArvCamera *camera;
-	char *arv_option_camera_name = NULL;
+    char *arv_option_camera_name = NULL;
 
-	g_thread_init (NULL);
-	g_type_init ();
+    ros::init(argc, argv, "camnode");
+
+    if (ros::this_node::getNamespace() == "/") {
+        ROS_WARN("[camnode] Started in the global namespace! This is probably wrong. Start camnode "
+                 "in the camera namespace.\nExample command-line usage:\n"
+                 "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
+    }
+
+    g_thread_init (NULL);
+    g_type_init ();
 
     camera = arv_camera_new(arv_option_camera_name);
-	if (camera == NULL) {
-		THROW_ERROR("could not open camera");
-	}
+    if (camera == NULL) {
+        THROW_ERROR("could not open camera");
+    }
 
-	std::cout << "opened camera" << std::endl;
+    std::cout << "opened camera" << std::endl;
 
-	{
-		int arv_option_width = -1;
-		int arv_option_height = -1;
+    ros::NodeHandle node_handle;
+    std::string ros_camera_name = arv_camera_get_device_id(camera);
+    cam_info_manager = new camera_info_manager::CameraInfoManager(node_handle,
+                                                                  ros_camera_name);
+
+    {
+        int arv_option_width = -1;
+        int arv_option_height = -1;
 		int arv_option_horizontal_binning = -1;
 		int arv_option_vertical_binning = -1;
 		double arv_option_exposure_time_us = -1;
@@ -102,6 +151,7 @@ int main(int argc, char** argv) {
 		arv_camera_set_gain (camera, arv_option_gain);
 
 		arv_camera_get_region (camera, &x, &y, &width, &height);
+		g_width=width; g_height=height;
 		arv_camera_get_binning (camera, &dx, &dy);
 		exposure = arv_camera_get_exposure_time (camera);
 		gain = arv_camera_get_gain (camera);
@@ -152,6 +202,11 @@ int main(int argc, char** argv) {
 
 	for (int i = 0; i < 50; i++)
 		arv_stream_push_buffer (stream, arv_buffer_new (payload, NULL));
+
+	// topic is "image_raw", with queue size of 1
+	// image transport interfaces
+	image_transport::ImageTransport *transport = new image_transport::ImageTransport(node_handle);
+	publisher = transport->advertiseCamera("image_raw", 1);
 
 	arv_camera_set_acquisition_mode (camera, ARV_ACQUISITION_MODE_CONTINUOUS);
 
