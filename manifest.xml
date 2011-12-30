@@ -13,6 +13,9 @@
   <depend package="sensor_msgs"/>
   <depend package="image_transport"/>
   <depend package="camera_info_manager"/>
+  <depend package="dynamic_reconfigure" />
+  <depend package="driver_base" />
+  <depend package="tf" />
 
   <rosdep name="glib2"/>
 

@@ -14,7 +14,13 @@
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
 
+#include <dynamic_reconfigure/server.h>
+#include <driver_base/SensorLevels.h>
+#include <tf/transform_listener.h>
+#include <camera_aravis/CameraAravisConfig.h>
+
 #define THROW_ERROR(m) throw std::string((m))
+typedef camera_aravis::CameraAravisConfig Config;
 
 // global variables -------------------
 static gboolean cancel = FALSE;
@@ -22,6 +28,8 @@ image_transport::CameraPublisher publisher;
 camera_info_manager::CameraInfoManager *cam_info_manager;
 sensor_msgs::CameraInfo cam_info;
 gint g_width, g_height; // buffer->width and buffer->height not working, so I used a global.
+Config g_config;
+ros::NodeHandle *node_handle;
 // ------------------------------------
 
 typedef struct {
@@ -33,6 +41,18 @@ static void
 set_cancel (int signal)
 {
     cancel = TRUE;
+}
+
+void ros_reconfigure_callback(Config &newconfig, uint32_t level)
+{
+    if (newconfig.frame_id == "")
+        newconfig.frame_id = "camera";
+
+    std::string tf_prefix = tf::getPrefixParam(*node_handle);
+    ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
+    newconfig.frame_id = tf::resolve(tf_prefix, newconfig.frame_id);
+
+    g_config = newconfig;                // save new parameters
 }
 
 static void
@@ -51,7 +71,7 @@ new_buffer_cb (ArvStream *stream, ApplicationData *data)
             sensor_msgs::Image msg;
             msg.header.stamp = ros::Time::now(); // host timestamps (else buffer->timestamp_ns)
             msg.header.seq = buffer->frame_id;
-            //      msg.header.frame_id = "0";
+            msg.header.frame_id = g_config.frame_id;
             msg.height = g_height;
             msg.width = g_width;
             msg.encoding = "mono8";  // XXX fixme
@@ -111,6 +131,7 @@ periodic_task_cb (void *abstract_data)
 int main(int argc, char** argv) {
     ArvCamera *camera;
     char *arv_option_camera_name = NULL;
+    g_config.frame_id = "camera";
 
     ros::init(argc, argv, "camnode");
 
@@ -130,10 +151,15 @@ int main(int argc, char** argv) {
 
     std::cout << "opened camera" << std::endl;
 
-    ros::NodeHandle node_handle;
     std::string ros_camera_name = arv_camera_get_device_id(camera);
-    cam_info_manager = new camera_info_manager::CameraInfoManager(node_handle,
+    node_handle = new ros::NodeHandle();
+    cam_info_manager = new camera_info_manager::CameraInfoManager(*node_handle,
                                                                   ros_camera_name);
+
+    dynamic_reconfigure::Server<Config> srv;
+    dynamic_reconfigure::Server<Config>::CallbackType f;
+    f = boost::bind(&ros_reconfigure_callback, _1, _2);
+    srv.setCallback(f);
 
     {
         int arv_option_width = -1;
@@ -207,7 +233,7 @@ int main(int argc, char** argv) {
 
 	// topic is "image_raw", with queue size of 1
 	// image transport interfaces
-	image_transport::ImageTransport *transport = new image_transport::ImageTransport(node_handle);
+	image_transport::ImageTransport *transport = new image_transport::ImageTransport(*node_handle);
 	publisher = transport->advertiseCamera("image_raw", 1);
 
 	arv_camera_set_acquisition_mode (camera, ARV_ACQUISITION_MODE_CONTINUOUS);
