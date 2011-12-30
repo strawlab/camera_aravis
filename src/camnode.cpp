@@ -103,6 +103,8 @@ periodic_task_cb (void *abstract_data)
         return FALSE;
     }
 
+    ros::spinOnce();
+
     return TRUE;
 }
 
