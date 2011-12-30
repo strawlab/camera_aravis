@@ -3,6 +3,9 @@ include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMakeModules )
 FIND_PACKAGE(Aravis)
 
+include(FindPkgConfig)
+pkg_check_modules(GLIB glib-2.0)
+
 # Set the build type.  Options are:
 #  Coverage       : w/ debug symbols, w/o optimization, w/ code-coverage
 #  Debug          : w/ debug symbols, w/o optimization
@@ -32,5 +35,5 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 #target_link_libraries(example ${PROJECT_NAME})
 
 rosbuild_add_executable(camnode src/camnode.cpp)
-target_link_libraries(camnode ${ARAVIS_LIBRARY})
-include_directories(${ARAVIS_INCLUDE_PATH})
+target_link_libraries(camnode ${ARAVIS_LIBRARY} ${GLIB_LIBRARIES})
+include_directories(${ARAVIS_INCLUDE_PATH} ${GLIB_INCLUDE_DIRS})
