@@ -30,6 +30,7 @@ sensor_msgs::CameraInfo cam_info;
 gint g_width, g_height; // buffer->width and buffer->height not working, so I used a global.
 Config g_config;
 ros::NodeHandle *node_handle;
+ArvCamera *camera;
 // ------------------------------------
 
 typedef struct {
@@ -53,6 +54,10 @@ void ros_reconfigure_callback(Config &newconfig, uint32_t level)
     newconfig.frame_id = tf::resolve(tf_prefix, newconfig.frame_id);
 
     g_config = newconfig;                // save new parameters
+
+    arv_camera_set_exposure_time(camera, g_config.exposure);
+    arv_camera_set_gain(camera, g_config.gain);
+
 }
 
 static void
@@ -129,9 +134,8 @@ periodic_task_cb (void *abstract_data)
 }
 
 int main(int argc, char** argv) {
-    ArvCamera *camera;
     char *arv_option_camera_name = NULL;
-    g_config.frame_id = "camera";
+    g_config = g_config.__getDefault__();
 
     ros::init(argc, argv, "camnode");
 
@@ -149,17 +153,7 @@ int main(int argc, char** argv) {
         THROW_ERROR("could not open camera");
     }
 
-    std::cout << "opened camera" << std::endl;
-
-    std::string ros_camera_name = arv_camera_get_device_id(camera);
     node_handle = new ros::NodeHandle();
-    cam_info_manager = new camera_info_manager::CameraInfoManager(*node_handle,
-                                                                  ros_camera_name);
-
-    dynamic_reconfigure::Server<Config> srv;
-    dynamic_reconfigure::Server<Config>::CallbackType f;
-    f = boost::bind(&ros_reconfigure_callback, _1, _2);
-    srv.setCallback(f);
 
     {
         int arv_option_width = -1;
@@ -173,10 +167,19 @@ int main(int argc, char** argv) {
 		double exposure;
 		int gain;
 
+        // Manual exposure mode
+        arv_camera_set_exposure_time_auto(camera, ARV_AUTO_OFF);
+        arv_camera_set_gain_auto(camera, ARV_AUTO_OFF);
+
 		arv_camera_set_region (camera, 0, 0, arv_option_width, arv_option_height);
 		arv_camera_set_binning (camera, arv_option_horizontal_binning, arv_option_vertical_binning);
-		arv_camera_set_exposure_time (camera, arv_option_exposure_time_us);
-		arv_camera_set_gain (camera, arv_option_gain);
+
+        /*
+		g_config.exposure = arv_camera_get_exposure_time(camera);
+		g_config.gain = arv_camera_get_gain(camera);
+        */
+        arv_camera_set_exposure_time(camera, g_config.exposure);
+        arv_camera_set_gain(camera, g_config.gain);
 
 		arv_camera_get_region (camera, &x, &y, &width, &height);
 		g_width=width; g_height=height;
@@ -194,6 +197,15 @@ int main(int argc, char** argv) {
 		g_printf ("exposure            = %g µs\n", exposure);
 		g_printf ("gain                = %d dB\n", gain);
 	}
+
+    std::string ros_camera_name = arv_camera_get_device_id(camera);
+    cam_info_manager = new camera_info_manager::CameraInfoManager(*node_handle,
+                                                                  ros_camera_name);
+
+    dynamic_reconfigure::Server<Config> srv;
+    dynamic_reconfigure::Server<Config>::CallbackType f;
+    f = boost::bind(&ros_reconfigure_callback, _1, _2);
+    srv.setCallback(f);
 
 	gint payload = arv_camera_get_payload (camera);
 
@@ -242,7 +254,7 @@ int main(int argc, char** argv) {
 	{
 		char *arv_option_trigger = NULL;
 		double arv_option_software_trigger = -1;
-		double arv_option_frequency = -1.0;
+		double arv_option_frequency = 1000.0;
 
 		if (arv_option_frequency > 0.0)
 			arv_camera_set_frame_rate (camera, arv_option_frequency);
@@ -262,6 +274,8 @@ int main(int argc, char** argv) {
 
 	arv_camera_start_acquisition (camera);
 	ApplicationData data;
+    data.buffer_count=0;
+	data.main_loop = 0;
 
 	g_signal_connect (stream, "new-buffer", G_CALLBACK (new_buffer_cb), &data);
 	arv_stream_set_emit_signals (stream, TRUE);
