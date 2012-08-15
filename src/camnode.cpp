@@ -133,8 +133,13 @@ periodic_task_cb (void *abstract_data)
     return TRUE;
 }
 
-int main(int argc, char** argv) {
-    char *arv_option_camera_name = NULL;
+int main(int argc, char** argv) 
+{
+    char   *pszCamera = NULL;
+    int		nInterfaces = 0;
+    int		nDevices = 0;
+    int 	i=0;
+    
     g_config = g_config.__getDefault__();
 
     ros::init(argc, argv, "camnode");
@@ -148,16 +153,28 @@ int main(int argc, char** argv) {
     //g_thread_init (NULL);
     g_type_init ();
 
-    camera = arv_camera_new(arv_option_camera_name);
-    if (camera == NULL) {
-        THROW_ERROR("could not open camera");
-    }
+    // Print out some useful info.
+    ROS_WARN ("Attached cameras:");
+    arv_update_device_list();
+    nInterfaces = arv_get_n_interfaces();
+    ROS_WARN ("# Interfaces: %d", nInterfaces);
 
-    node_handle = new ros::NodeHandle();
-
+    nDevices = arv_get_n_devices();
+    ROS_WARN ("# Devices: %d", nDevices);
+    for (i=0; i<nDevices; i++)
+    	ROS_WARN ("Device%d: %s", i, arv_get_device_id(i));
+    
+    
+    if (nDevices>0)
     {
-        int arv_option_width = -1;
-        int arv_option_height = -1;
+		camera = arv_camera_new(pszCamera);
+		if (camera == NULL) 
+			ROS_WARN ("Could not open camera.");
+	
+		node_handle = new ros::NodeHandle();
+	
+		int arv_option_width = -1;
+		int arv_option_height = -1;
 		int arv_option_horizontal_binning = -1;
 		int arv_option_vertical_binning = -1;
 		double arv_option_exposure_time_us = -1;
@@ -194,6 +211,7 @@ int main(int argc, char** argv) {
 		g_printf ("image height        = %d\n", height);
 		g_printf ("horizontal binning  = %d\n", dx);
 		g_printf ("vertical binning    = %d\n", dy);
+		g_printf ("pixel format        = %s\n", arv_camera_get_pixel_format_as_string(camera));
 		g_printf ("exposure            = %g µs\n", exposure);
 		g_printf ("gain                = %d dB\n", gain);
 	}
