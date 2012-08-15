@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
                  "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
     }
 
-    g_thread_init (NULL);
+    //g_thread_init (NULL);
     g_type_init ();
 
     camera = arv_camera_new(arv_option_camera_name);
