@@ -181,8 +181,8 @@ int main(int argc, char** argv)
 		int arv_option_gain = -1;
 		gint x, y, width, height;
 		gint dx, dy;
-		double exposure;
-		int gain;
+		double exposure, exposureMin, exposureMax;
+		double gain, gainMin, gainMax;
 
         // Manual exposure mode
         arv_camera_set_exposure_time_auto(camera, ARV_AUTO_OFF);
@@ -202,7 +202,9 @@ int main(int argc, char** argv)
 		g_width=width; g_height=height;
 		arv_camera_get_binning (camera, &dx, &dy);
 		exposure = arv_camera_get_exposure_time (camera);
+		arv_camera_get_exposure_time_bounds(camera, &exposureMin, &exposureMax);
 		gain = arv_camera_get_gain (camera);
+		arv_camera_get_gain_bounds(camera, &gainMin, &gainMax);
 
 		g_printf ("vendor name         = %s\n", arv_camera_get_vendor_name (camera));
 		g_printf ("model name          = %s\n", arv_camera_get_model_name (camera));
@@ -212,125 +214,127 @@ int main(int argc, char** argv)
 		g_printf ("horizontal binning  = %d\n", dx);
 		g_printf ("vertical binning    = %d\n", dy);
 		g_printf ("pixel format        = %s\n", arv_camera_get_pixel_format_as_string(camera));
-		g_printf ("exposure            = %g µs\n", exposure);
-		g_printf ("gain                = %d dB\n", gain);
-	}
+		g_printf ("exposure            = %g µs in range [%g,%g]\n", exposure, exposureMin, exposureMax);
+		g_printf ("gain                = %g %% in range [%g,%g]\n", gain, gainMin, gainMax);
 
-    std::string ros_camera_name = arv_camera_get_device_id(camera);
-    cam_info_manager = new camera_info_manager::CameraInfoManager(*node_handle,
-                                                                  ros_camera_name);
-
-    dynamic_reconfigure::Server<Config> srv;
-    dynamic_reconfigure::Server<Config>::CallbackType f;
-    f = boost::bind(&ros_reconfigure_callback, _1, _2);
-    srv.setCallback(f);
-
-	gint payload = arv_camera_get_payload (camera);
-
-	ArvStream *stream = arv_camera_create_stream (camera, NULL, NULL);
-	if (stream == NULL) {
-		THROW_ERROR("could not open stream");
-	}
-
-	if (!ARV_IS_GV_STREAM (stream)) {
-		THROW_ERROR("stream is not GV_STREAM");
-	}
-
-	{
-
-		gboolean arv_option_auto_socket_buffer = FALSE;
-		gboolean arv_option_no_packet_resend = FALSE;
-		unsigned int arv_option_packet_timeout = 20;
-		unsigned int arv_option_frame_retention = 100;
-
-		if (arv_option_auto_socket_buffer)
-			g_object_set (stream,
-						  "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-						  "socket-buffer-size", 0,
-						  NULL);
-		if (arv_option_no_packet_resend)
-			g_object_set (stream,
-						  "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-						  NULL);
-		g_object_set (stream,
-					  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
-					  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
-					  NULL);
-	}
-
-	for (int i = 0; i < 50; i++)
-		arv_stream_push_buffer (stream, arv_buffer_new (payload, NULL));
-
-	// topic is "image_raw", with queue size of 1
-	// image transport interfaces
-	image_transport::ImageTransport *transport = new image_transport::ImageTransport(*node_handle);
-	publisher = transport->advertiseCamera("image_raw", 1);
-
-	arv_camera_set_acquisition_mode (camera, ARV_ACQUISITION_MODE_CONTINUOUS);
-
-	guint software_trigger_source = 0;
-	{
-		char *arv_option_trigger = NULL;
-		double arv_option_software_trigger = -1;
-		double arv_option_frequency = 1000.0;
-
-		if (arv_option_frequency > 0.0)
-			arv_camera_set_frame_rate (camera, arv_option_frequency);
-
-		if (arv_option_trigger != NULL)
-			arv_camera_set_trigger (camera, arv_option_trigger);
-
-		if (arv_option_software_trigger > 0.0) {
-			arv_camera_set_trigger (camera, "Software");
-			software_trigger_source = g_timeout_add ((double) (0.5 + 1000.0 /
-															   arv_option_software_trigger),
-													 emit_software_trigger, camera);
+		std::string ros_camera_name = arv_camera_get_device_id(camera);
+		cam_info_manager = new camera_info_manager::CameraInfoManager(*node_handle,
+																	  ros_camera_name);
+	
+		dynamic_reconfigure::Server<Config> srv;
+		dynamic_reconfigure::Server<Config>::CallbackType f;
+		f = boost::bind(&ros_reconfigure_callback, _1, _2);
+		srv.setCallback(f);
+	
+		gint payload = arv_camera_get_payload (camera);
+	
+		ArvStream *stream = arv_camera_create_stream (camera, NULL, NULL);
+		if (stream == NULL) {
+			THROW_ERROR("could not open stream");
 		}
-
-	}
-
-
-	arv_camera_start_acquisition (camera);
-	ApplicationData data;
-    data.buffer_count=0;
-	data.main_loop = 0;
-
-	g_signal_connect (stream, "new-buffer", G_CALLBACK (new_buffer_cb), &data);
-	arv_stream_set_emit_signals (stream, TRUE);
-
-	g_signal_connect (arv_camera_get_device (camera), "control-lost",
-					  G_CALLBACK (control_lost_cb), NULL);
-
-	g_timeout_add_seconds (1, periodic_task_cb, &data);
-
-	data.main_loop = g_main_loop_new (NULL, FALSE);
-
-	void (*old_sigint_handler)(int);
-	old_sigint_handler = signal (SIGINT, set_cancel);
-
-	g_main_loop_run (data.main_loop);
-
-	if (software_trigger_source > 0)
-		g_source_remove (software_trigger_source);
-
-	signal (SIGINT, old_sigint_handler);
-
-	g_main_loop_unref (data.main_loop);
-
-	{
-		guint64 n_completed_buffers;
-		guint64 n_failures;
-		guint64 n_underruns;
-
-		arv_stream_get_statistics (stream, &n_completed_buffers, &n_failures, &n_underruns);
-
-		g_printf ("Completed buffers = %Lu\n", (unsigned long long) n_completed_buffers);
-		g_printf ("Failures          = %Lu\n", (unsigned long long) n_failures);
-		g_printf ("Underruns         = %Lu\n", (unsigned long long) n_underruns);
-	}
-	arv_camera_stop_acquisition (camera);
-
-	g_object_unref (stream);
-
+	
+		if (!ARV_IS_GV_STREAM (stream)) {
+			THROW_ERROR("stream is not GV_STREAM");
+		}
+	
+		{
+	
+			gboolean arv_option_auto_socket_buffer = FALSE;
+			gboolean arv_option_no_packet_resend = FALSE;
+			unsigned int arv_option_packet_timeout = 20;
+			unsigned int arv_option_frame_retention = 100;
+	
+			if (arv_option_auto_socket_buffer)
+				g_object_set (stream,
+							  "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+							  "socket-buffer-size", 0,
+							  NULL);
+			if (arv_option_no_packet_resend)
+				g_object_set (stream,
+							  "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+							  NULL);
+			g_object_set (stream,
+						  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
+						  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
+						  NULL);
+		}
+	
+		for (int i = 0; i < 50; i++)
+			arv_stream_push_buffer (stream, arv_buffer_new (payload, NULL));
+	
+		// topic is "image_raw", with queue size of 1
+		// image transport interfaces
+		image_transport::ImageTransport *transport = new image_transport::ImageTransport(*node_handle);
+		publisher = transport->advertiseCamera("image_raw", 1);
+	
+		arv_camera_set_acquisition_mode (camera, ARV_ACQUISITION_MODE_CONTINUOUS);
+	
+		guint software_trigger_source = 0;
+		{
+			char *arv_option_trigger = NULL;
+			double arv_option_software_trigger = -1;
+			double arv_option_frequency = 1000.0;
+	
+			if (arv_option_frequency > 0.0)
+				arv_camera_set_frame_rate (camera, arv_option_frequency);
+	
+			if (arv_option_trigger != NULL)
+				arv_camera_set_trigger (camera, arv_option_trigger);
+	
+			if (arv_option_software_trigger > 0.0) {
+				arv_camera_set_trigger (camera, "Software");
+				software_trigger_source = g_timeout_add ((double) (0.5 + 1000.0 /
+																   arv_option_software_trigger),
+														 emit_software_trigger, camera);
+			}
+	
+		}
+	
+	
+		arv_camera_start_acquisition (camera);
+		ApplicationData data;
+		data.buffer_count=0;
+		data.main_loop = 0;
+	
+		g_signal_connect (stream, "new-buffer", G_CALLBACK (new_buffer_cb), &data);
+		arv_stream_set_emit_signals (stream, TRUE);
+	
+		g_signal_connect (arv_camera_get_device (camera), "control-lost",
+						  G_CALLBACK (control_lost_cb), NULL);
+	
+		g_timeout_add_seconds (1, periodic_task_cb, &data);
+	
+		data.main_loop = g_main_loop_new (NULL, FALSE);
+	
+		void (*old_sigint_handler)(int);
+		old_sigint_handler = signal (SIGINT, set_cancel);
+	
+		g_main_loop_run (data.main_loop);
+	
+		if (software_trigger_source > 0)
+			g_source_remove (software_trigger_source);
+	
+		signal (SIGINT, old_sigint_handler);
+	
+		g_main_loop_unref (data.main_loop);
+	
+		{
+			guint64 n_completed_buffers;
+			guint64 n_failures;
+			guint64 n_underruns;
+	
+			arv_stream_get_statistics (stream, &n_completed_buffers, &n_failures, &n_underruns);
+	
+			g_printf ("Completed buffers = %Lu\n", (unsigned long long) n_completed_buffers);
+			g_printf ("Failures          = %Lu\n", (unsigned long long) n_failures);
+			g_printf ("Underruns         = %Lu\n", (unsigned long long) n_underruns);
+		}
+		arv_camera_stop_acquisition (camera);
+	
+		g_object_unref (stream);
+    }
+    else
+    	ROS_WARN ("No cameras detected.");
+    
     return 0;
 }
