@@ -20,8 +20,8 @@
 #include <camera_aravis/CameraAravisConfig.h>
 
 
-#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
-#define MAX(a,b)		(((a)>(b)) ? (a) : (b))
+//#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
+//#define MAX(a,b)		(((a)>(b)) ? (a) : (b))
 #define CLIP(x,lo,hi)	MIN(MAX((lo),(x)),(hi))
 
 #define THROW_ERROR(m) throw std::string((m))
@@ -57,28 +57,65 @@ static void set_cancel (int signal)
     global.bCancel = TRUE;
 }
 
-void ros_reconfigure_callback(Config &configNew, uint32_t level)
+void ros_reconfigure_callback(Config &config, uint32_t level)
 {
+    int changedFramerate;
+    int changedAutoexposure;
+    int changedAutogain;
+    int changedExposure;
+    int changedGain;
+    int changedFrameid;
+
+    
     std::string tf_prefix = tf::getPrefixParam(*global.pNode);
     ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
 
-    if (configNew.frame_id == "")
-        configNew.frame_id = "camera";
+    if (config.frame_id == "")
+        config.frame_id = "camera";
 
+    // Find what's changed.
+    changedFramerate    = (global.config.framerate != config.framerate);
+    changedAutoexposure = (global.config.autoexposure != config.autoexposure);
+    changedAutogain     = (global.config.autogain != config.autogain);
+    changedExposure     = (global.config.exposure != config.exposure);
+    changedGain         = (global.config.gain != config.gain);
+    changedFrameid      = (global.config.frame_id != config.frame_id);
+    	
 
-    // Save params, and limit to min/max.
-    configNew.framerate = CLIP(configNew.framerate, global.configMin.framerate, global.configMax.framerate);
-    configNew.exposure  = CLIP(configNew.exposure,  global.configMin.exposure,  global.configMax.exposure);
-    configNew.gain      = CLIP(configNew.gain,      global.configMin.gain,      global.configMax.gain);
-    configNew.frame_id  = tf::resolve(tf_prefix, configNew.frame_id);
+    // Save params, and limit to legal values.
+    config.framerate = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
+    config.exposure  = CLIP(config.exposure,  global.configMin.exposure,  global.configMax.exposure);
+    config.gain      = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
+    config.frame_id  = tf::resolve(tf_prefix, config.frame_id);
+    if (changedExposure || ((changedFramerate || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
+    	config.autoexposure = (int)ARV_AUTO_OFF;
+    if (changedGain || ((changedFramerate || changedExposure || changedFrameid) && (ArvAuto)config.autogain==ARV_AUTO_ONCE)) 
+    	config.autogain = (int)ARV_AUTO_OFF;
     
-    global.config = configNew;
+    global.config = config;
     
     // Set params into the camera.
-    arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
-    arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
-    arv_camera_set_gain(global.pArvcamera, global.config.gain);
+    if (changedFramerate)
+    	arv_camera_set_frame_rate(global.pArvcamera, config.framerate);
+    if (changedExposure)
+    	arv_camera_set_exposure_time(global.pArvcamera, config.exposure);
+    if (changedGain)
+    	arv_camera_set_gain(global.pArvcamera, config.gain);
+    if (changedAutoexposure)
+    {
+    	arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)config.autoexposure);
+        //config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
+    }
+    if (changedAutogain)
+    {
+    	arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)config.autogain);
+        //config.gain = arv_camera_get_gain (global.pArvcamera);
+    }
 
+    config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
+    
+    
+    global.config = config;
 }
 
 static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata)
@@ -199,9 +236,6 @@ int main(int argc, char** argv)
 		int arv_option_vertical_binning = -1;
 		gint x, y;
 		gint dx, dy;
-		double exposure;
-		double gain;
-		double framerate;
 
 		
 		// Manual exposure mode
@@ -218,9 +252,9 @@ int main(int argc, char** argv)
 		// Get parameter current values.
 		arv_camera_get_region (global.pArvcamera, &x, &y, &global.width, &global.height);
 		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
-		exposure  = arv_camera_get_exposure_time (global.pArvcamera);
-		gain      = arv_camera_get_gain (global.pArvcamera);
-		framerate = arv_camera_get_frame_rate (global.pArvcamera);
+		global.config.exposure  = arv_camera_get_exposure_time (global.pArvcamera);
+		global.config.gain      = arv_camera_get_gain (global.pArvcamera);
+		global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
 
 		
 		// Get parameter bounds.
@@ -239,9 +273,9 @@ int main(int argc, char** argv)
 		g_printf ("Horizontal binning   = %d\n", dx);
 		g_printf ("Vertical binning     = %d\n", dy);
 		g_printf ("Pixel format         = %s\n", arv_camera_get_pixel_format_as_string(global.pArvcamera));
-		g_printf ("Framerate            = %g fps\n", framerate);
-		g_printf ("Exposure             = %g µs in range [%g,%g]\n", exposure, global.configMin.exposure, global.configMax.exposure);
-		g_printf ("Gain                 = %g %% in range [%g,%g]\n", gain, global.configMin.gain, global.configMax.gain);
+		g_printf ("Framerate            = %g fps\n", global.config.framerate);
+		g_printf ("Exposure             = %g µs in range [%g,%g]\n", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
+		g_printf ("Gain                 = %g %% in range [%g,%g]\n", global.config.gain, global.configMin.gain, global.configMax.gain);
 		g_printf ("Can set Framerate:     %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
 		g_printf ("Can set Exposure:      %s\n", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
 		g_printf ("Can set ExposureAuto:  %s\n", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
