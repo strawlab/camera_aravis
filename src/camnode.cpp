@@ -9,6 +9,7 @@
 
 #include <ros/ros.h>
 #include <ros/time.h>
+#include <ros/duration.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
 #include <image_transport/image_transport.h>
@@ -59,12 +60,13 @@ static void set_cancel (int signal)
 
 void ros_reconfigure_callback(Config &config, uint32_t level)
 {
-    int changedFramerate;
-    int changedAutoexposure;
-    int changedAutogain;
-    int changedExposure;
-    int changedGain;
-    int changedFrameid;
+	ros::Duration   dur(2.0);
+    int             changedFramerate;
+    int             changedAutoexposure;
+    int             changedAutogain;
+    int             changedExposure;
+    int             changedGain;
+    int             changedFrameid;
 
     
     std::string tf_prefix = tf::getPrefixParam(*global.pNode);
@@ -87,9 +89,9 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.exposure  = CLIP(config.exposure,  global.configMin.exposure,  global.configMax.exposure);
     config.gain      = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
     config.frame_id  = tf::resolve(tf_prefix, config.frame_id);
-    if (changedExposure || ((changedFramerate || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
+    if (changedExposure || ((changedFramerate || changedAutogain || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
-    if (changedGain || ((changedFramerate || changedExposure || changedFrameid) && (ArvAuto)config.autogain==ARV_AUTO_ONCE)) 
+    if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid) && (ArvAuto)config.autogain==ARV_AUTO_ONCE)) 
     	config.autogain = (int)ARV_AUTO_OFF;
     
     global.config = config;
@@ -104,12 +106,14 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     if (changedAutoexposure)
     {
     	arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)config.autoexposure);
-        //config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
+    	dur.sleep();
+        config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
     }
     if (changedAutogain)
     {
     	arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)config.autogain);
-        //config.gain = arv_camera_get_gain (global.pArvcamera);
+    	dur.sleep();
+        config.gain = arv_camera_get_gain (global.pArvcamera);
     }
 
     config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
@@ -158,7 +162,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 
 static void control_lost_cb (ArvGvDevice *gv_device)
 {
-    g_printf ("Control lost\n");
+    g_printf ("Control lost.\n");
 
     global.bCancel = TRUE;
 }
@@ -277,10 +281,10 @@ int main(int argc, char** argv)
 		g_printf ("Exposure             = %g µs in range [%g,%g]\n", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
 		g_printf ("Gain                 = %g %% in range [%g,%g]\n", global.config.gain, global.configMin.gain, global.configMax.gain);
 		g_printf ("Can set Framerate:     %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set AutoExposure:  %s\n", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set AutoGain:      %s\n", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
 		g_printf ("Can set Exposure:      %s\n", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set ExposureAuto:  %s\n", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
 		g_printf ("Can set Gain:          %s\n", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set GainAuto:      %s\n", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
 		
 		std::string ros_camera_name = arv_camera_get_device_id(global.pArvcamera);
 		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, ros_camera_name);
