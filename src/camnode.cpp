@@ -39,6 +39,11 @@ struct
 	Config 									config;
 	Config 									configMin;
 	Config 									configMax;
+	int                                     xRoi;
+	int                                     yRoi;
+	int                                     widthRoi;
+	int                                     heightRoi;
+	const char                             *pszPixelformat;
 	ros::NodeHandle 					   *pNode;
 	ArvCamera 							   *pArvcamera;
 } global;
@@ -58,6 +63,45 @@ static void set_cancel (int signal)
     global.bCancel = TRUE;
 }
 
+ArvStream *CreateStream(void)
+{
+	gboolean arv_option_auto_socket_buffer = FALSE;
+	gboolean arv_option_no_packet_resend = FALSE;
+	unsigned int arv_option_packet_timeout = 20;
+	unsigned int arv_option_frame_retention = 100;
+
+	
+	ArvStream *pStream = arv_camera_create_stream (global.pArvcamera, NULL, NULL);
+
+	if (pStream == NULL) 
+		ROS_WARN("could not open stream");
+
+	if (!ARV_IS_GV_STREAM (pStream)) 
+		ROS_WARN("stream is not GV_STREAM");
+
+	if (arv_option_auto_socket_buffer)
+		g_object_set (pStream,
+					  "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+					  "socket-buffer-size", 0,
+					  NULL);
+	if (arv_option_no_packet_resend)
+		g_object_set (pStream,
+					  "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
+					  NULL);
+	g_object_set (pStream,
+				  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
+				  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
+				  NULL);
+
+	gint payload = arv_camera_get_payload (global.pArvcamera);
+	g_printf("Payload size %d\n", payload);
+	for (int i=0; i<50; i++)
+		arv_stream_push_buffer (pStream, arv_buffer_new (payload, NULL));
+	
+	return pStream;
+}	
+
+
 void ros_reconfigure_callback(Config &config, uint32_t level)
 {
 	ros::Duration   dur(2.0);
@@ -66,6 +110,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     int             changedAutogain;
     int             changedExposure;
     int             changedGain;
+//    int             changedRoi;
     int             changedFrameid;
 
     
@@ -81,20 +126,29 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     changedAutogain     = (global.config.autogain != config.autogain);
     changedExposure     = (global.config.exposure != config.exposure);
     changedGain         = (global.config.gain != config.gain);
+//    changedRoi          = (global.config.xRoi != config.xRoi) // Aravis has trouble changing ROI on-the-fly.
+//    						|| (global.config.yRoi != config.yRoi) 
+//    						|| (global.config.widthRoi != config.widthRoi)
+//    						|| (global.config.heightRoi != config.heightRoi);
     changedFrameid      = (global.config.frame_id != config.frame_id);
     	
 
-    // Save params, and limit to legal values.
-    config.framerate = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
-    config.exposure  = CLIP(config.exposure,  global.configMin.exposure,  global.configMax.exposure);
-    config.gain      = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
-    config.frame_id  = tf::resolve(tf_prefix, config.frame_id);
+    // Limit params to legal values.
+    config.framerate  = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
+    config.exposure   = CLIP(config.exposure,  global.configMin.exposure,  global.configMax.exposure);
+    config.gain       = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
+//    config.xRoi       = CLIP(config.xRoi,      global.configMin.xRoi,      global.configMax.xRoi);
+//    config.yRoi       = CLIP(config.yRoi,      global.configMin.yRoi,      global.configMax.yRoi);
+//    if (config.widthRoi != -1)
+//    	config.widthRoi   = CLIP(config.widthRoi,  global.configMin.widthRoi,  global.configMax.widthRoi-global.config.xRoi);
+//    if (config.heightRoi != -1)
+//    	config.heightRoi  = CLIP(config.heightRoi, global.configMin.heightRoi, global.configMax.heightRoi-global.config.yRoi);
+    config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
     if (changedExposure || ((changedFramerate || changedAutogain || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
     if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid) && (ArvAuto)config.autogain==ARV_AUTO_ONCE)) 
     	config.autogain = (int)ARV_AUTO_OFF;
-    
-    global.config = config;
+
     
     // Set params into the camera.
     if (changedFramerate)
@@ -103,6 +157,13 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     	arv_camera_set_exposure_time(global.pArvcamera, config.exposure);
     if (changedGain)
     	arv_camera_set_gain(global.pArvcamera, config.gain);
+//    if (changedRoi)
+//    {
+//    	arv_camera_stop_acquisition (global.pArvcamera);
+//    	arv_camera_set_region(global.pArvcamera, config.xRoi, config.yRoi, config.widthRoi, config.heightRoi);
+//    	//arv_camera_get_region(global.pArvcamera, &config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
+//    	arv_camera_start_acquisition (global.pArvcamera);
+//    }
     if (changedAutoexposure)
     {
     	arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)config.autoexposure);
@@ -117,42 +178,42 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     }
 
     config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
-    
-    
+
     global.config = config;
 }
+
 
 static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata)
 {
     ArvBuffer *pBuffer;
 
-    pBuffer = arv_stream_pop_buffer (pStream);
+    pBuffer = arv_stream_try_pop_buffer (pStream);
+
     if (pBuffer != NULL) 
     {
         if (pBuffer->status == ARV_BUFFER_STATUS_SUCCESS) 
         {
-            pApplicationdata->buffer_count++;
-            int step = global.width; // XXX how to check this?
-            std::vector<uint8_t> this_data(pBuffer->size);
-            memcpy(&this_data[0], pBuffer->data, pBuffer->size);
+        	pApplicationdata->buffer_count++;
+			std::vector<uint8_t> this_data(pBuffer->size);
+			memcpy(&this_data[0], pBuffer->data, pBuffer->size);
 
-            sensor_msgs::Image msg;
-            msg.header.stamp = ros::Time::now(); // host timestamps (else pBuffer->timestamp_ns)
-            msg.header.seq = pBuffer->frame_id;
-            msg.header.frame_id = global.config.frame_id;
-            msg.height = global.height;
-            msg.width = global.width;
-            msg.encoding = "mono8";  // XXX fixme
-            msg.step = step;
-            msg.data = this_data;
+			sensor_msgs::Image msg;
+			msg.header.stamp = ros::Time::now(); // host timestamps (else pBuffer->timestamp_ns)
+			msg.header.seq = pBuffer->frame_id;
+			msg.header.frame_id = global.config.frame_id;
+			msg.width = global.widthRoi;
+			msg.height = global.heightRoi;
+			msg.encoding = global.pszPixelformat;
+			msg.step = global.widthRoi;
+			msg.data = this_data;
 
-            // get current CameraInfo data
-            global.camerainfo = global.pCameraInfoManager->getCameraInfo();
-            global.camerainfo.header.stamp = msg.header.stamp;
-            global.camerainfo.header.seq = msg.header.seq;
-            global.camerainfo.header.frame_id = msg.header.frame_id;
-            global.camerainfo.height = global.height;
-            global.camerainfo.width = global.width;
+			// get current CameraInfo data
+			global.camerainfo = global.pCameraInfoManager->getCameraInfo();
+			global.camerainfo.header.stamp = msg.header.stamp;
+			global.camerainfo.header.seq = msg.header.seq;
+			global.camerainfo.header.frame_id = msg.header.frame_id;
+			global.camerainfo.width = global.widthRoi;
+			global.camerainfo.height = global.heightRoi;
 
             global.publisher.publish(msg, global.camerainfo);
         }
@@ -199,6 +260,9 @@ int main(int argc, char** argv)
     int		nInterfaces = 0;
     int		nDevices = 0;
     int 	i=0;
+    int     widthSensor;
+    int     heightSensor;
+    
     
     global.bCancel = FALSE;
     global.config = global.config.__getDefault__();
@@ -234,36 +298,44 @@ int main(int argc, char** argv)
 	
 		global.pNode = new ros::NodeHandle();
 	
-		int arv_option_width = -1;
-		int arv_option_height = -1;
 		int arv_option_horizontal_binning = -1;
 		int arv_option_vertical_binning = -1;
-		gint x, y;
 		gint dx, dy;
-
+		ros::param::get("roi/x", global.xRoi);
+		ros::param::get("roi/y", global.yRoi);
+		ros::param::get("roi/width", global.widthRoi);
+		ros::param::get("roi/height", global.heightRoi);
 		
-		// Manual exposure mode
-		arv_camera_set_exposure_time_auto(global.pArvcamera, ARV_AUTO_OFF);
-		arv_camera_set_gain_auto(global.pArvcamera, ARV_AUTO_OFF);
-
-		arv_camera_set_region (global.pArvcamera, 0, 0, arv_option_width, arv_option_height);
-		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
-
+		// Initial camera settings.
+		arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)global.config.autoexposure);
+		arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)global.config.autogain);
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
 		arv_camera_set_gain(global.pArvcamera, global.config.gain);
+		//arv_camera_set_region (global.pArvcamera, 0, 0, global.configMax.widthRoi, global.configMax.heightRoi);
+		arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
+		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
+
 
 		
 		// Get parameter current values.
-		arv_camera_get_region (global.pArvcamera, &x, &y, &global.width, &global.height);
+		arv_camera_get_region (global.pArvcamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
 		global.config.exposure  = arv_camera_get_exposure_time (global.pArvcamera);
 		global.config.gain      = arv_camera_get_gain (global.pArvcamera);
 		global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
+		global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pArvcamera)))->str;
 
 		
 		// Get parameter bounds.
 		arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
 		arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
+		arv_camera_get_sensor_size(global.pArvcamera, &widthSensor, &heightSensor);
+//		arv_camera_get_width_bounds(global.pArvcamera, &global.configMin.widthRoi, &global.configMax.widthRoi);
+//		arv_camera_get_height_bounds(global.pArvcamera, &global.configMin.heightRoi, &global.configMax.heightRoi);
+//		global.configMin.xRoi = 0;
+//		global.configMax.xRoi = global.configMax.widthRoi - global.configMin.widthRoi;
+//		global.configMin.yRoi = 0;
+//		global.configMax.yRoi = global.configMax.heightRoi - global.configMin.heightRoi;
 		global.configMin.framerate =    0.0;
 		global.configMax.framerate = 1000.0;
 		
@@ -272,11 +344,12 @@ int main(int argc, char** argv)
 		g_printf ("Vendor name          = %s\n", arv_camera_get_vendor_name (global.pArvcamera));
 		g_printf ("Model name           = %s\n", arv_camera_get_model_name (global.pArvcamera));
 		g_printf ("Device id            = %s\n", arv_camera_get_device_id (global.pArvcamera));
-		g_printf ("Image width          = %d\n", global.width);
-		g_printf ("Image height         = %d\n", global.height);
+		g_printf ("Image width          = %d\n", widthSensor); 
+		g_printf ("Image height         = %d\n", heightSensor);
+		g_printf ("ROI x,y,w,h          = %d, %d, %d, %d\n", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		g_printf ("Horizontal binning   = %d\n", dx);
 		g_printf ("Vertical binning     = %d\n", dy);
-		g_printf ("Pixel format         = %s\n", arv_camera_get_pixel_format_as_string(global.pArvcamera));
+		g_printf ("Pixel format         = %s\n", global.pszPixelformat);
 		g_printf ("Framerate            = %g fps\n", global.config.framerate);
 		g_printf ("Exposure             = %g µs in range [%g,%g]\n", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
 		g_printf ("Gain                 = %g %% in range [%g,%g]\n", global.config.gain, global.configMin.gain, global.configMax.gain);
@@ -294,43 +367,7 @@ int main(int argc, char** argv)
 		fnCallback = boost::bind(&ros_reconfigure_callback, _1, _2);
 		srv.setCallback(fnCallback);
 	
-		gint payload = arv_camera_get_payload (global.pArvcamera);
-	
-		ArvStream *pStream = arv_camera_create_stream (global.pArvcamera, NULL, NULL);
-		if (pStream == NULL) 
-		{
-			THROW_ERROR("could not open stream");
-		}
-	
-		if (!ARV_IS_GV_STREAM (pStream)) 
-		{
-			THROW_ERROR("stream is not GV_STREAM");
-		}
-	
-		{
-	
-			gboolean arv_option_auto_socket_buffer = FALSE;
-			gboolean arv_option_no_packet_resend = FALSE;
-			unsigned int arv_option_packet_timeout = 20;
-			unsigned int arv_option_frame_retention = 100;
-	
-			if (arv_option_auto_socket_buffer)
-				g_object_set (pStream,
-							  "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-							  "socket-buffer-size", 0,
-							  NULL);
-			if (arv_option_no_packet_resend)
-				g_object_set (pStream,
-							  "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-							  NULL);
-			g_object_set (pStream,
-						  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
-						  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
-						  NULL);
-		}
-	
-		for (int i = 0; i < 50; i++)
-			arv_stream_push_buffer (pStream, arv_buffer_new (payload, NULL));
+		ArvStream *pStream = CreateStream();
 	
 		// topic is "image_raw", with queue size of 1
 		// image transport interfaces
