@@ -19,6 +19,11 @@
 #include <tf/transform_listener.h>
 #include <camera_aravis/CameraAravisConfig.h>
 
+
+#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
+#define MAX(a,b)		(((a)>(b)) ? (a) : (b))
+#define CLIP(x,lo,hi)	MIN(MAX((lo),(x)),(hi))
+
 #define THROW_ERROR(m) throw std::string((m))
 typedef camera_aravis::CameraAravisConfig Config;
 
@@ -31,6 +36,8 @@ struct
 	sensor_msgs::CameraInfo 				camerainfo;
 	gint 									width, height; // buffer->width and buffer->height not working, so I used a global.
 	Config 									config;
+	Config 									configMin;
+	Config 									configMax;
 	ros::NodeHandle 					   *pNode;
 	ArvCamera 							   *pArvcamera;
 } global;
@@ -53,18 +60,24 @@ static void set_cancel (int signal)
 void ros_reconfigure_callback(Config &configNew, uint32_t level)
 {
     std::string tf_prefix = tf::getPrefixParam(*global.pNode);
+    ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
 
     if (configNew.frame_id == "")
         configNew.frame_id = "camera";
 
-    ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
-    configNew.frame_id = tf::resolve(tf_prefix, configNew.frame_id);
 
-    global.config = configNew;                // save new parameters
-
+    // Save params, and limit to min/max.
+    configNew.framerate = CLIP(configNew.framerate, global.configMin.framerate, global.configMax.framerate);
+    configNew.exposure  = CLIP(configNew.exposure,  global.configMin.exposure,  global.configMax.exposure);
+    configNew.gain      = CLIP(configNew.gain,      global.configMin.gain,      global.configMax.gain);
+    configNew.frame_id  = tf::resolve(tf_prefix, configNew.frame_id);
+    
+    global.config = configNew;
+    
+    // Set params into the camera.
+    arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
     arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
     arv_camera_set_gain(global.pArvcamera, global.config.gain);
-    arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 }
 
@@ -184,13 +197,13 @@ int main(int argc, char** argv)
 		int arv_option_height = -1;
 		int arv_option_horizontal_binning = -1;
 		int arv_option_vertical_binning = -1;
-		//double arv_option_exposure_time_us = -1;
-		//int arv_option_gain = -1;
 		gint x, y;
 		gint dx, dy;
-		double exposure, exposureMin, exposureMax;
-		double gain, gainMin, gainMax;
+		double exposure;
+		double gain;
+		double framerate;
 
+		
 		// Manual exposure mode
 		arv_camera_set_exposure_time_auto(global.pArvcamera, ARV_AUTO_OFF);
 		arv_camera_set_gain_auto(global.pArvcamera, ARV_AUTO_OFF);
@@ -201,24 +214,39 @@ int main(int argc, char** argv)
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
 		arv_camera_set_gain(global.pArvcamera, global.config.gain);
 
+		
+		// Get parameter current values.
 		arv_camera_get_region (global.pArvcamera, &x, &y, &global.width, &global.height);
 		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
-		exposure = arv_camera_get_exposure_time (global.pArvcamera);
-		arv_camera_get_exposure_time_bounds(global.pArvcamera, &exposureMin, &exposureMax);
-		gain = arv_camera_get_gain (global.pArvcamera);
-		arv_camera_get_gain_bounds(global.pArvcamera, &gainMin, &gainMax);
+		exposure  = arv_camera_get_exposure_time (global.pArvcamera);
+		gain      = arv_camera_get_gain (global.pArvcamera);
+		framerate = arv_camera_get_frame_rate (global.pArvcamera);
 
-		g_printf ("vendor name         = %s\n", arv_camera_get_vendor_name (global.pArvcamera));
-		g_printf ("model name          = %s\n", arv_camera_get_model_name (global.pArvcamera));
-		g_printf ("device id           = %s\n", arv_camera_get_device_id (global.pArvcamera));
-		g_printf ("image width         = %d\n", global.width);
-		g_printf ("image height        = %d\n", global.height);
-		g_printf ("horizontal binning  = %d\n", dx);
-		g_printf ("vertical binning    = %d\n", dy);
-		g_printf ("pixel format        = %s\n", arv_camera_get_pixel_format_as_string(global.pArvcamera));
-		g_printf ("exposure            = %g µs in range [%g,%g]\n", exposure, exposureMin, exposureMax);
-		g_printf ("gain                = %g %% in range [%g,%g]\n", gain, gainMin, gainMax);
-		g_printf ("is_frame_rate_available = %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+		
+		// Get parameter bounds.
+		arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
+		arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
+		global.configMin.framerate =    0.0;
+		global.configMax.framerate = 1000.0;
+		
+		
+		// Print information.
+		g_printf ("Vendor name          = %s\n", arv_camera_get_vendor_name (global.pArvcamera));
+		g_printf ("Model name           = %s\n", arv_camera_get_model_name (global.pArvcamera));
+		g_printf ("Device id            = %s\n", arv_camera_get_device_id (global.pArvcamera));
+		g_printf ("Image width          = %d\n", global.width);
+		g_printf ("Image height         = %d\n", global.height);
+		g_printf ("Horizontal binning   = %d\n", dx);
+		g_printf ("Vertical binning     = %d\n", dy);
+		g_printf ("Pixel format         = %s\n", arv_camera_get_pixel_format_as_string(global.pArvcamera));
+		g_printf ("Framerate            = %g fps\n", framerate);
+		g_printf ("Exposure             = %g µs in range [%g,%g]\n", exposure, global.configMin.exposure, global.configMax.exposure);
+		g_printf ("Gain                 = %g %% in range [%g,%g]\n", gain, global.configMin.gain, global.configMax.gain);
+		g_printf ("Can set Framerate:     %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set Exposure:      %s\n", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set ExposureAuto:  %s\n", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set Gain:          %s\n", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
+		g_printf ("Can set GainAuto:      %s\n", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
 		
 		std::string ros_camera_name = arv_camera_get_device_id(global.pArvcamera);
 		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, ros_camera_name);
