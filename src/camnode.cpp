@@ -64,6 +64,7 @@ void ros_reconfigure_callback(Config &configNew, uint32_t level)
 
     arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
     arv_camera_set_gain(global.pArvcamera, global.config.gain);
+    arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 }
 
@@ -217,7 +218,8 @@ int main(int argc, char** argv)
 		g_printf ("pixel format        = %s\n", arv_camera_get_pixel_format_as_string(global.pArvcamera));
 		g_printf ("exposure            = %g µs in range [%g,%g]\n", exposure, exposureMin, exposureMax);
 		g_printf ("gain                = %g %% in range [%g,%g]\n", gain, gainMin, gainMax);
-	
+		g_printf ("is_frame_rate_available = %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+		
 		std::string ros_camera_name = arv_camera_get_device_id(global.pArvcamera);
 		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, ros_camera_name);
 	
