@@ -119,10 +119,17 @@ void ClipRoi (int *pX, int *pY, int *pWidth, int *pHeight)
 {
     *pX = CLIP(*pX,      global.xRoiMin,      global.xRoiMax);
     *pY = CLIP(*pY,      global.yRoiMin,      global.yRoiMax);
-    if (*pWidth != -1)
+    
+    if (*pWidth > 0)
     	*pWidth = CLIP(*pWidth,  global.widthRoiMin,  global.widthRoiMax - *pX);
-    if (*pHeight != -1)
+    else
+    	*pWidth = global.widthRoiMax - *pX;
+    
+    if (*pHeight > 0)
     	*pHeight  = CLIP(*pHeight, global.heightRoiMin, global.heightRoiMax - *pY);
+    else
+    	*pHeight = global.heightRoiMax - *pY;
+
 }
 
 void ros_reconfigure_callback(Config &config, uint32_t level)
@@ -334,25 +341,34 @@ int main(int argc, char** argv)
 		global.configMin.framerate =    0.0;
 		global.configMax.framerate = 1000.0;
 		
-		ros::param::get("roi/x", global.xRoi);
-		ros::param::get("roi/y", global.yRoi);
-		ros::param::get("roi/width", global.widthRoi);
-		ros::param::get("roi/height", global.heightRoi);
-		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
-		
-		// -1 or 0 means largest height/width possible.
-		if (global.widthRoi<=0)
-			global.widthRoi = global.widthRoiMax - global.xRoi;
-		if (global.heightRoi<=0)
-			global.heightRoi = global.heightRoiMax - global.yRoi;
+		// Get ROI from parameter server.
+		if (ros::param::has("roi/x"))
+			ros::param::get("roi/x", global.xRoi);
+		else
+			global.xRoi = 0;
 
+		if (ros::param::has("roi/y"))
+			ros::param::get("roi/y", global.yRoi);
+		else
+			global.yRoi = 0;
 		
+		if (ros::param::has("roi/width"))
+			ros::param::get("roi/width", global.widthRoi);
+		else
+			global.widthRoi = 0;
+
+		if (ros::param::has("roi/height"))
+			ros::param::get("roi/height", global.heightRoi);
+		else
+			global.heightRoi = 0;
+		
+		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
+
 		// Initial camera settings.
 		arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)global.config.autoexposure);
 		arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)global.config.autogain);
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
 		arv_camera_set_gain(global.pArvcamera, global.config.gain);
-		//arv_camera_set_region (global.pArvcamera, 0, 0, global.configMax.widthRoi, global.configMax.heightRoi);
 		arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
 
