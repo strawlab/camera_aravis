@@ -39,10 +39,22 @@ struct
 	Config 									config;
 	Config 									configMin;
 	Config 									configMax;
+	
 	int                                     xRoi;
 	int                                     yRoi;
 	int                                     widthRoi;
 	int                                     heightRoi;
+
+	int                                     xRoiMin;
+	int                                     yRoiMin;
+	int                                     widthRoiMin;
+	int                                     heightRoiMin;
+
+	int                                     xRoiMax;
+	int                                     yRoiMax;
+	int                                     widthRoiMax;
+	int                                     heightRoiMax;
+	
 	const char                             *pszPixelformat;
 	ros::NodeHandle 					   *pNode;
 	ArvCamera 							   *pArvcamera;
@@ -101,6 +113,19 @@ ArvStream *CreateStream(void)
 	return pStream;
 }	
 
+
+// ClipRoi()
+// Clip the given values such that the rect is a valid image size.
+void ClipRoi (int *pX, int *pY, int *pWidth, int *pHeight)
+{
+    *pX = CLIP(*pX,      global.xRoiMin,      global.xRoiMax);
+    *pY = CLIP(*pY,      global.yRoiMin,      global.yRoiMax);
+    if (*pWidth != -1)
+    	*pWidth = CLIP(*pWidth,  global.widthRoiMin,  global.widthRoiMax - *pX);
+    if (*pHeight != -1)
+    	*pHeight  = CLIP(*pHeight, global.heightRoiMin, global.heightRoiMax - *pY);
+	g_printf("pst: %d, %d, %d, %d\n", *pX, *pY, *pWidth, *pHeight);
+}
 
 void ros_reconfigure_callback(Config &config, uint32_t level)
 {
@@ -301,10 +326,33 @@ int main(int argc, char** argv)
 		int arv_option_horizontal_binning = -1;
 		int arv_option_vertical_binning = -1;
 		gint dx, dy;
+
+		// Get parameter bounds.
+		arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
+		arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
+		arv_camera_get_sensor_size(global.pArvcamera, &widthSensor, &heightSensor);
+		arv_camera_set_region (global.pArvcamera, 0, 0, widthSensor, heightSensor);
+		arv_camera_get_width_bounds(global.pArvcamera, &global.widthRoiMin, &global.widthRoiMax);
+		arv_camera_get_height_bounds(global.pArvcamera, &global.heightRoiMin, &global.heightRoiMax);
+		global.xRoiMin = 0;
+		global.xRoiMax = global.widthRoiMax - global.widthRoiMin;
+		global.yRoiMin = 0;
+		global.yRoiMax = global.heightRoiMax - global.heightRoiMin;
+		global.configMin.framerate =    0.0;
+		global.configMax.framerate = 1000.0;
+		
 		ros::param::get("roi/x", global.xRoi);
 		ros::param::get("roi/y", global.yRoi);
 		ros::param::get("roi/width", global.widthRoi);
 		ros::param::get("roi/height", global.heightRoi);
+		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
+		
+		// -1 or 0 means largest height/width possible.
+		if (global.widthRoi<=0)
+			global.widthRoi = global.widthRoiMax - global.xRoi;
+		if (global.heightRoi<=0)
+			global.heightRoi = global.heightRoiMax - global.yRoi;
+
 		
 		// Initial camera settings.
 		arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)global.config.autoexposure);
@@ -316,7 +364,6 @@ int main(int argc, char** argv)
 		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
 
 
-		
 		// Get parameter current values.
 		arv_camera_get_region (global.pArvcamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
@@ -325,19 +372,6 @@ int main(int argc, char** argv)
 		global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
 		global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pArvcamera)))->str;
 
-		
-		// Get parameter bounds.
-		arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
-		arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
-		arv_camera_get_sensor_size(global.pArvcamera, &widthSensor, &heightSensor);
-//		arv_camera_get_width_bounds(global.pArvcamera, &global.configMin.widthRoi, &global.configMax.widthRoi);
-//		arv_camera_get_height_bounds(global.pArvcamera, &global.configMin.heightRoi, &global.configMax.heightRoi);
-//		global.configMin.xRoi = 0;
-//		global.configMax.xRoi = global.configMax.widthRoi - global.configMin.widthRoi;
-//		global.configMin.yRoi = 0;
-//		global.configMax.yRoi = global.configMax.heightRoi - global.configMin.heightRoi;
-		global.configMin.framerate =    0.0;
-		global.configMax.framerate = 1000.0;
 		
 		
 		// Print information.
