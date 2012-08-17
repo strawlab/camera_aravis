@@ -529,6 +529,7 @@ int main(int argc, char** argv)
 		image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.pNode);
 		global.publisher = transport->advertiseCamera("image_raw", 1);
 	
+		arv_camera_stop_acquisition (global.pArvcamera);
 		arv_camera_start_acquisition (global.pArvcamera);
 
 		ApplicationData applicationdata;
