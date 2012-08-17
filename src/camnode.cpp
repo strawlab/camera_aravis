@@ -106,7 +106,6 @@ ArvStream *CreateStream(void)
 				  NULL);
 
 	gint payload = arv_camera_get_payload (global.pArvcamera);
-	g_printf("Payload size %d\n", payload);
 	for (int i=0; i<50; i++)
 		arv_stream_push_buffer (pStream, arv_buffer_new (payload, NULL));
 	
@@ -124,7 +123,6 @@ void ClipRoi (int *pX, int *pY, int *pWidth, int *pHeight)
     	*pWidth = CLIP(*pWidth,  global.widthRoiMin,  global.widthRoiMax - *pX);
     if (*pHeight != -1)
     	*pHeight  = CLIP(*pHeight, global.heightRoiMin, global.heightRoiMax - *pY);
-	g_printf("pst: %d, %d, %d, %d\n", *pX, *pY, *pWidth, *pHeight);
 }
 
 void ros_reconfigure_callback(Config &config, uint32_t level)
@@ -162,12 +160,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.framerate  = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
     config.exposure   = CLIP(config.exposure,  global.configMin.exposure,  global.configMax.exposure);
     config.gain       = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
-//    config.xRoi       = CLIP(config.xRoi,      global.configMin.xRoi,      global.configMax.xRoi);
-//    config.yRoi       = CLIP(config.yRoi,      global.configMin.yRoi,      global.configMax.yRoi);
-//    if (config.widthRoi != -1)
-//    	config.widthRoi   = CLIP(config.widthRoi,  global.configMin.widthRoi,  global.configMax.widthRoi-global.config.xRoi);
-//    if (config.heightRoi != -1)
-//    	config.heightRoi  = CLIP(config.heightRoi, global.configMin.heightRoi, global.configMax.heightRoi-global.config.yRoi);
+//    ClipRoi (&config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
     config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
     if (changedExposure || ((changedFramerate || changedAutogain || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
