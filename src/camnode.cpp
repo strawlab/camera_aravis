@@ -6,7 +6,6 @@
 #include <math.h>
 
 #include <glib.h>
-#include <glib/gprintf.h>
 
 #include <ros/ros.h>
 #include <ros/time.h>
@@ -238,45 +237,45 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     // Set params into the camera.
     if (changedExposure)
     {
-    	ROS_WARN ("Set exposure time = %f", config.exposure);
+    	ROS_INFO ("Set exposure time = %f", config.exposure);
     	arv_camera_set_exposure_time(global.pArvcamera, config.exposure);
     }
     if (changedGain)
     {
-    	ROS_WARN ("Set gain = %f", config.gain);
+    	ROS_INFO ("Set gain = %f", config.gain);
     	arv_camera_set_gain(global.pArvcamera, config.gain);
     }
     if (changedAutoexposure)
     {
-    	ROS_WARN ("Set autoexposure = %s", arv_auto_to_string(ArvAutoFromInt(config.autoexposure)));
+    	ROS_INFO ("Set autoexposure = %s", arv_auto_to_string(ArvAutoFromInt(config.autoexposure)));
     	arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(config.autoexposure));
     	dur.sleep();
         config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
     }
     if (changedAutogain)
     {
-    	ROS_WARN ("Set autogain = %s", arv_auto_to_string(ArvAutoFromInt(config.autogain)));
+    	ROS_INFO ("Set autogain = %s", arv_auto_to_string(ArvAutoFromInt(config.autogain)));
     	arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(config.autogain));
     	dur.sleep();
         config.gain = arv_camera_get_gain (global.pArvcamera);
     }
     if (changedAcquisitionMode)
     {
-    	ROS_WARN ("Set acquisition mode = %s", arv_acquisition_mode_to_string(ArvAcquisitionModeFromInt(config.acquisitionmode)));
+    	ROS_INFO ("Set acquisition mode = %s", arv_acquisition_mode_to_string(ArvAcquisitionModeFromInt(config.acquisitionmode)));
         arv_camera_stop_acquisition (global.pArvcamera);
     	arv_camera_set_acquisition_mode(global.pArvcamera, ArvAcquisitionModeFromInt(config.acquisitionmode));
         arv_camera_start_acquisition (global.pArvcamera);
     }
     if (changedFramerate)
     {
-    	ROS_WARN ("Set framerate = %f", config.framerate);
+    	ROS_INFO ("Set framerate = %f", config.framerate);
         arv_camera_stop_acquisition (global.pArvcamera);
     	arv_camera_set_frame_rate(global.pArvcamera, config.framerate);
         arv_camera_start_acquisition (global.pArvcamera);
     }
     if (changedTriggersource)
     {
-    	ROS_WARN ("Set triggersource = %s", szTriggersource);
+    	ROS_INFO ("Set triggersource = %s", szTriggersource);
         arv_camera_stop_acquisition (global.pArvcamera);
     	arv_camera_set_trigger (global.pArvcamera, szTriggersource);
         arv_camera_start_acquisition (global.pArvcamera);
@@ -285,7 +284,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     {
     	if (!g_strcmp0(szTriggersource,"Software"))
     	{
-        	ROS_WARN ("Set triggerrate = %f", 1000.0/ceil(1000.0 / config.triggerrate));
+        	ROS_INFO ("Set triggerrate = %f", 1000.0/ceil(1000.0 / config.triggerrate));
     		// Turn on software timer callback.
     		if (global.idsrcTrigger)
     			g_source_remove(global.idsrcTrigger);
@@ -354,7 +353,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 
 static void control_lost_cb (ArvGvDevice *gv_device)
 {
-    g_printf ("Control lost.\n");
+    ROS_WARN ("Control lost.\n");
 
     global.bCancel = TRUE;
 }
@@ -370,7 +369,7 @@ static gboolean periodic_task_cb (void *abstract_data)
 {
     ApplicationData *pData = (ApplicationData*)abstract_data;
 
-    //  g_printf ("Frame rate = %d Hz\n", pData->buffer_count);
+    //  ROS_INFO ("Frame rate = %d Hz\n", pData->buffer_count);
     pData->buffer_count = 0;
 
     if (global.bCancel) {
@@ -409,15 +408,15 @@ int main(int argc, char** argv)
     g_type_init ();
 
     // Print out some useful info.
-    ROS_WARN ("Attached cameras:");
+    ROS_INFO ("Attached cameras:");
     arv_update_device_list();
     nInterfaces = arv_get_n_interfaces();
-    ROS_WARN ("# Interfaces: %d", nInterfaces);
+    ROS_INFO ("# Interfaces: %d", nInterfaces);
 
     nDevices = arv_get_n_devices();
-    ROS_WARN ("# Devices: %d", nDevices);
+    ROS_INFO ("# Devices: %d", nDevices);
     for (i=0; i<nDevices; i++)
-    	ROS_WARN ("Device%d: %s", i, arv_get_device_id(i));
+    	ROS_INFO ("Device%d: %s", i, arv_get_device_id(i));
     
     
     if (nDevices>0)
@@ -470,7 +469,6 @@ int main(int argc, char** argv)
 		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 
 		// Initial camera settings.
-		arv_camera_stop_acquisition (global.pArvcamera);
 		arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(global.config.autoexposure));
 		arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(global.config.autogain));
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
@@ -481,6 +479,16 @@ int main(int argc, char** argv)
     	arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 
+    	// Start the camerainfo manager.
+		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, arv_camera_get_device_id(global.pArvcamera));
+	
+		// Start the dynamic_reconfigure server.
+		dynamic_reconfigure::Server<Config> srv;
+		dynamic_reconfigure::Server<Config>::CallbackType fnCallback;
+		fnCallback = boost::bind(&ros_reconfigure_callback, _1, _2);
+		srv.setCallback(fnCallback);
+		ros::Duration(2.0).sleep();
+	
 		// Get parameter current values.
 		arv_camera_get_region (global.pArvcamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
@@ -492,32 +500,28 @@ int main(int argc, char** argv)
 		
 		
 		// Print information.
-		g_printf ("Vendor name          = %s\n", arv_camera_get_vendor_name (global.pArvcamera));
-		g_printf ("Model name           = %s\n", arv_camera_get_model_name (global.pArvcamera));
-		g_printf ("Device id            = %s\n", arv_camera_get_device_id (global.pArvcamera));
-		g_printf ("Image width          = %d\n", widthSensor); 
-		g_printf ("Image height         = %d\n", heightSensor);
-		g_printf ("ROI x,y,w,h          = %d, %d, %d, %d\n", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
-		g_printf ("Horizontal binning   = %d\n", dx);
-		g_printf ("Vertical binning     = %d\n", dy);
-		g_printf ("Pixel format         = %s\n", global.pszPixelformat);
-		g_printf ("Framerate            = %g fps\n", global.config.framerate);
-		g_printf ("Exposure             = %g µs in range [%g,%g]\n", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
-		g_printf ("Gain                 = %g %% in range [%g,%g]\n", global.config.gain, global.configMin.gain, global.configMax.gain);
-		g_printf ("Can set Framerate:     %s\n", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set AutoExposure:  %s\n", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set AutoGain:      %s\n", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set Exposure:      %s\n", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
-		g_printf ("Can set Gain:          %s\n", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
+		ROS_INFO ("    Using Camera Configuration:");
+		ROS_INFO ("    ---------------------------");
+		ROS_INFO ("    Vendor name          = %s", arv_camera_get_vendor_name (global.pArvcamera));
+		ROS_INFO ("    Model name           = %s", arv_camera_get_model_name (global.pArvcamera));
+		ROS_INFO ("    Device id            = %s", arv_camera_get_device_id (global.pArvcamera));
+		ROS_INFO ("    Image width          = %d", widthSensor); 
+		ROS_INFO ("    Image height         = %d", heightSensor);
+		ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
+		ROS_INFO ("    Horizontal binning   = %d", dx);
+		ROS_INFO ("    Vertical binning     = %d", dy);
+		ROS_INFO ("    Pixel format         = %s", global.pszPixelformat);
+		ROS_INFO ("    Acquisition Mode     = %s", arv_acquisition_mode_to_string(arv_camera_get_acquisition_mode(global.pArvcamera)));
+		ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
+		ROS_INFO ("    Trigger Source       = %s", arv_camera_get_trigger_source(global.pArvcamera));
+		ROS_INFO ("    Exposure             = %g us in range [%g,%g]", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
+		ROS_INFO ("    Gain                 = %g %% in range [%g,%g]", global.config.gain, global.configMin.gain, global.configMax.gain);
+		ROS_INFO ("    Can set Framerate:     %s", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+		ROS_INFO ("    Can set AutoExposure:  %s", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
+		ROS_INFO ("    Can set AutoGain:      %s", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
+		ROS_INFO ("    Can set Exposure:      %s", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
+		ROS_INFO ("    Can set Gain:          %s", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
 		
-		std::string ros_camera_name = arv_camera_get_device_id(global.pArvcamera);
-		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, ros_camera_name);
-	
-		dynamic_reconfigure::Server<Config> srv;
-		dynamic_reconfigure::Server<Config>::CallbackType fnCallback;
-		fnCallback = boost::bind(&ros_reconfigure_callback, _1, _2);
-		srv.setCallback(fnCallback);
-	
 		ArvStream *pStream = CreateStream();
 	
 		// topic is "image_raw", with queue size of 1
@@ -560,9 +564,9 @@ int main(int argc, char** argv)
 	
 			arv_stream_get_statistics (pStream, &n_completed_buffers, &n_failures, &n_underruns);
 	
-			g_printf ("Completed buffers = %Lu\n", (unsigned long long) n_completed_buffers);
-			g_printf ("Failures          = %Lu\n", (unsigned long long) n_failures);
-			g_printf ("Underruns         = %Lu\n", (unsigned long long) n_underruns);
+			ROS_INFO ("\nCompleted buffers = %Lu\n", (unsigned long long) n_completed_buffers);
+			ROS_INFO ("Failures          = %Lu\n", (unsigned long long) n_failures);
+			ROS_INFO ("Underruns         = %Lu\n", (unsigned long long) n_underruns);
 		}
 		arv_camera_stop_acquisition (global.pArvcamera);
 	
