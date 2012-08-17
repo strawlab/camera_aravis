@@ -262,23 +262,18 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     if (changedAcquisitionMode)
     {
     	ROS_INFO ("Set acquisition mode = %s", arv_acquisition_mode_to_string(ArvAcquisitionModeFromInt(config.acquisitionmode)));
-        arv_camera_stop_acquisition (global.pArvcamera);
     	arv_camera_set_acquisition_mode(global.pArvcamera, ArvAcquisitionModeFromInt(config.acquisitionmode));
-        arv_camera_start_acquisition (global.pArvcamera);
     }
     if (changedFramerate)
     {
     	ROS_INFO ("Set framerate = %f", config.framerate);
-        arv_camera_stop_acquisition (global.pArvcamera);
     	arv_camera_set_frame_rate(global.pArvcamera, config.framerate);
-        arv_camera_start_acquisition (global.pArvcamera);
     }
     if (changedTriggersource)
     {
     	ROS_INFO ("Set triggersource = %s", szTriggersource);
-        arv_camera_stop_acquisition (global.pArvcamera);
+    	arv_camera_set_trigger_source (global.pArvcamera, szTriggersource);
     	arv_camera_set_trigger (global.pArvcamera, szTriggersource);
-        arv_camera_start_acquisition (global.pArvcamera);
     }
     if (changedTriggersource || changedTriggerrate)
     {
@@ -307,7 +302,6 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 //    	arv_camera_start_acquisition (global.pArvcamera);
 //    }
 
-    //config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
 
     global.config = config;
 }
@@ -353,7 +347,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 
 static void control_lost_cb (ArvGvDevice *gv_device)
 {
-    ROS_WARN ("Control lost.\n");
+    ROS_WARN ("Control lost.");
 
     global.bCancel = TRUE;
 }
@@ -369,7 +363,7 @@ static gboolean periodic_task_cb (void *abstract_data)
 {
     ApplicationData *pData = (ApplicationData*)abstract_data;
 
-    //  ROS_INFO ("Frame rate = %d Hz\n", pData->buffer_count);
+    //  ROS_INFO ("Frame rate = %d Hz", pData->buffer_count);
     pData->buffer_count = 0;
 
     if (global.bCancel) {
@@ -404,7 +398,6 @@ int main(int argc, char** argv)
                  "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
     }
 
-    //g_thread_init (NULL);
     g_type_init ();
 
     // Print out some useful info.
@@ -505,8 +498,8 @@ int main(int argc, char** argv)
 		ROS_INFO ("    Vendor name          = %s", arv_camera_get_vendor_name (global.pArvcamera));
 		ROS_INFO ("    Model name           = %s", arv_camera_get_model_name (global.pArvcamera));
 		ROS_INFO ("    Device id            = %s", arv_camera_get_device_id (global.pArvcamera));
-		ROS_INFO ("    Image width          = %d", widthSensor); 
-		ROS_INFO ("    Image height         = %d", heightSensor);
+		ROS_INFO ("    Sensor width         = %d", widthSensor); 
+		ROS_INFO ("    Sensor height        = %d", heightSensor);
 		ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		ROS_INFO ("    Horizontal binning   = %d", dx);
 		ROS_INFO ("    Vertical binning     = %d", dy);
@@ -564,10 +557,10 @@ int main(int argc, char** argv)
 			guint64 n_underruns;
 	
 			arv_stream_get_statistics (pStream, &n_completed_buffers, &n_failures, &n_underruns);
-	
-			ROS_INFO ("\nCompleted buffers = %Lu\n", (unsigned long long) n_completed_buffers);
-			ROS_INFO ("Failures          = %Lu\n", (unsigned long long) n_failures);
-			ROS_INFO ("Underruns         = %Lu\n", (unsigned long long) n_underruns);
+
+			ROS_INFO ("Completed buffers = %Lu", (unsigned long long) n_completed_buffers);
+			ROS_INFO ("Failures          = %Lu", (unsigned long long) n_failures);
+			ROS_INFO ("Underruns         = %Lu", (unsigned long long) n_underruns);
 		}
 		arv_camera_stop_acquisition (global.pArvcamera);
 	
