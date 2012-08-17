@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <stdlib.h>
+#include <math.h>
 
 #include <glib.h>
 #include <glib/gprintf.h>
@@ -24,9 +25,13 @@
 //#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
 //#define MAX(a,b)		(((a)>(b)) ? (a) : (b))
 #define CLIP(x,lo,hi)	MIN(MAX((lo),(x)),(hi))
-
 #define THROW_ERROR(m) throw std::string((m))
+
 typedef camera_aravis::CameraAravisConfig Config;
+
+ArvStream      *CreateStream(void);
+static gboolean emit_software_trigger_callback (void *abstract_data);
+
 
 // Global variables -------------------
 struct
@@ -39,6 +44,7 @@ struct
 	Config 									config;
 	Config 									configMin;
 	Config 									configMax;
+	int                                     idsrcTrigger;
 	
 	int                                     xRoi;
 	int                                     yRoi;
@@ -69,6 +75,48 @@ typedef struct
 // ------------------------------------
 
 
+
+const char *szTriggersource0 = "Software";
+const char *szTriggersource1 = "Line1";
+const char *szTriggersource2 = "Line2";
+
+const char *SzTriggersourceFromInt (int iSource)
+{
+	const char *rv;
+	switch (iSource)
+	{
+	case 0: rv=szTriggersource0; break; 
+	case 1: rv=szTriggersource1; break; 
+	case 2: rv=szTriggersource2; break; 
+	default: rv=NULL; break; 
+	}
+	return rv;
+}
+ArvAcquisitionMode ArvAcquisitionModeFromInt (int iMode)
+{
+	ArvAcquisitionMode rv;
+	
+	switch (iMode)
+	{
+	case 0: rv=ARV_ACQUISITION_MODE_CONTINUOUS; break; 
+	case 1: rv=ARV_ACQUISITION_MODE_SINGLE_FRAME; break; 
+	default: rv=ARV_ACQUISITION_MODE_CONTINUOUS; break; 
+	}
+	return rv;
+}
+ArvAuto ArvAutoFromInt (int iAuto)
+{
+	ArvAuto rv;
+	
+	switch (iAuto)
+	{
+	case 0: rv=ARV_AUTO_OFF; break; 
+	case 1: rv=ARV_AUTO_ONCE; break; 
+	case 2: rv=ARV_AUTO_CONTINUOUS; break; 
+	default: rv=ARV_AUTO_OFF; break; 
+	}
+	return rv;
+}
 
 static void set_cancel (int signal)
 {
@@ -140,28 +188,37 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     int             changedAutogain;
     int             changedExposure;
     int             changedGain;
+    int             changedAcquisitionMode;
+    int             changedTriggersource;
+    int             changedTriggerrate;
 //    int             changedRoi;
     int             changedFrameid;
-
+    
+    const char     *szTriggersource;
+    
     
     std::string tf_prefix = tf::getPrefixParam(*global.pNode);
     ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
-
+    
+    szTriggersource = SzTriggersourceFromInt(config.triggersource);
     if (config.frame_id == "")
         config.frame_id = "camera";
 
+    
     // Find what's changed.
     changedFramerate    = (global.config.framerate != config.framerate);
     changedAutoexposure = (global.config.autoexposure != config.autoexposure);
     changedAutogain     = (global.config.autogain != config.autogain);
     changedExposure     = (global.config.exposure != config.exposure);
     changedGain         = (global.config.gain != config.gain);
+    changedAcquisitionMode = (global.config.acquisitionmode != config.acquisitionmode);
+    changedTriggersource= (global.config.triggersource != config.triggersource);
+    changedTriggerrate  = (global.config.triggerrate != config.triggerrate);
 //    changedRoi          = (global.config.xRoi != config.xRoi) // Aravis has trouble changing ROI on-the-fly.
 //    						|| (global.config.yRoi != config.yRoi) 
 //    						|| (global.config.widthRoi != config.widthRoi)
 //    						|| (global.config.heightRoi != config.heightRoi);
     changedFrameid      = (global.config.frame_id != config.frame_id);
-    	
 
     // Limit params to legal values.
     config.framerate  = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
@@ -169,19 +226,80 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.gain       = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
 //    ClipRoi (&config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
     config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
-    if (changedExposure || ((changedFramerate || changedAutogain || changedGain || changedFrameid) && (ArvAuto)config.autoexposure==ARV_AUTO_ONCE)) 
+    if (changedExposure || ((changedFramerate 
+    		                 || changedAutogain || changedGain || changedFrameid 
+    		                 || changedAcquisitionMode || changedTriggersource || changedTriggerrate) && ArvAutoFromInt(config.autoexposure)==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
-    if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid) && (ArvAuto)config.autogain==ARV_AUTO_ONCE)) 
+    if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid 
+    		             || changedAcquisitionMode || changedTriggersource || changedTriggerrate) && ArvAutoFromInt(config.autogain)==ARV_AUTO_ONCE)) 
     	config.autogain = (int)ARV_AUTO_OFF;
 
     
     // Set params into the camera.
-    if (changedFramerate)
-    	arv_camera_set_frame_rate(global.pArvcamera, config.framerate);
     if (changedExposure)
+    {
+    	ROS_WARN ("Set exposure time = %f", config.exposure);
     	arv_camera_set_exposure_time(global.pArvcamera, config.exposure);
+    }
     if (changedGain)
+    {
+    	ROS_WARN ("Set gain = %f", config.gain);
     	arv_camera_set_gain(global.pArvcamera, config.gain);
+    }
+    if (changedAutoexposure)
+    {
+    	ROS_WARN ("Set autoexposure = %s", arv_auto_to_string(ArvAutoFromInt(config.autoexposure)));
+    	arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(config.autoexposure));
+    	dur.sleep();
+        config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
+    }
+    if (changedAutogain)
+    {
+    	ROS_WARN ("Set autogain = %s", arv_auto_to_string(ArvAutoFromInt(config.autogain)));
+    	arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(config.autogain));
+    	dur.sleep();
+        config.gain = arv_camera_get_gain (global.pArvcamera);
+    }
+    if (changedAcquisitionMode)
+    {
+    	ROS_WARN ("Set acquisition mode = %s", arv_acquisition_mode_to_string(ArvAcquisitionModeFromInt(config.acquisitionmode)));
+        arv_camera_stop_acquisition (global.pArvcamera);
+    	arv_camera_set_acquisition_mode(global.pArvcamera, ArvAcquisitionModeFromInt(config.acquisitionmode));
+        arv_camera_start_acquisition (global.pArvcamera);
+    }
+    if (changedFramerate)
+    {
+    	ROS_WARN ("Set framerate = %f", config.framerate);
+        arv_camera_stop_acquisition (global.pArvcamera);
+    	arv_camera_set_frame_rate(global.pArvcamera, config.framerate);
+        arv_camera_start_acquisition (global.pArvcamera);
+    }
+    if (changedTriggersource)
+    {
+    	ROS_WARN ("Set triggersource = %s", szTriggersource);
+        arv_camera_stop_acquisition (global.pArvcamera);
+    	arv_camera_set_trigger (global.pArvcamera, szTriggersource);
+        arv_camera_start_acquisition (global.pArvcamera);
+    }
+    if (changedTriggersource || changedTriggerrate)
+    {
+    	if (!g_strcmp0(szTriggersource,"Software"))
+    	{
+        	ROS_WARN ("Set triggerrate = %f", 1000.0/ceil(1000.0 / config.triggerrate));
+    		// Turn on software timer callback.
+    		if (global.idsrcTrigger)
+    			g_source_remove(global.idsrcTrigger);
+    			
+    		global.idsrcTrigger = g_timeout_add ((guint)ceil(1000.0 / config.triggerrate), emit_software_trigger_callback, global.pArvcamera);
+    	}
+    	else
+    	{
+    		// Turn off software timer callback.
+    		if (global.idsrcTrigger)
+    			g_source_remove(global.idsrcTrigger);
+    			
+    	}
+    }
 //    if (changedRoi)
 //    {
 //    	arv_camera_stop_acquisition (global.pArvcamera);
@@ -189,20 +307,8 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 //    	//arv_camera_get_region(global.pArvcamera, &config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
 //    	arv_camera_start_acquisition (global.pArvcamera);
 //    }
-    if (changedAutoexposure)
-    {
-    	arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)config.autoexposure);
-    	dur.sleep();
-        config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
-    }
-    if (changedAutogain)
-    {
-    	arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)config.autogain);
-    	dur.sleep();
-        config.gain = arv_camera_get_gain (global.pArvcamera);
-    }
 
-    config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
+    //config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
 
     global.config = config;
 }
@@ -253,11 +359,9 @@ static void control_lost_cb (ArvGvDevice *gv_device)
     global.bCancel = TRUE;
 }
 
-static gboolean emit_software_trigger (void *abstract_data)
+static gboolean emit_software_trigger_callback (void *pArvcamera)
 {
-    ArvCamera *pArvcamera = (ArvCamera*)abstract_data;
-
-    arv_camera_software_trigger (pArvcamera);
+    arv_camera_software_trigger ((ArvCamera*)pArvcamera);
 
     return TRUE;
 }
@@ -291,6 +395,7 @@ int main(int argc, char** argv)
     
     global.bCancel = FALSE;
     global.config = global.config.__getDefault__();
+    global.idsrcTrigger = 0;
 
     ros::init(argc, argv, "camnode");
     if (ros::this_node::getNamespace() == "/") 
@@ -365,12 +470,15 @@ int main(int argc, char** argv)
 		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 
 		// Initial camera settings.
-		arv_camera_set_exposure_time_auto(global.pArvcamera, (ArvAuto)global.config.autoexposure);
-		arv_camera_set_gain_auto(global.pArvcamera, (ArvAuto)global.config.autogain);
+		arv_camera_stop_acquisition (global.pArvcamera);
+		arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(global.config.autoexposure));
+		arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(global.config.autogain));
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
 		arv_camera_set_gain(global.pArvcamera, global.config.gain);
 		arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
+		arv_camera_set_acquisition_mode (global.pArvcamera, ArvAcquisitionModeFromInt(global.config.acquisitionmode));
+    	arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 
 		// Get parameter current values.
@@ -417,31 +525,8 @@ int main(int argc, char** argv)
 		image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.pNode);
 		global.publisher = transport->advertiseCamera("image_raw", 1);
 	
-		arv_camera_set_acquisition_mode (global.pArvcamera, ARV_ACQUISITION_MODE_CONTINUOUS);
-	
-		guint software_trigger_source = 0;
-		{
-			char *arv_option_trigger = NULL;
-			double arv_option_software_trigger = -1;
-			double arv_option_frequency = 1000.0;
-	
-			if (arv_option_frequency > 0.0)
-				arv_camera_set_frame_rate (global.pArvcamera, arv_option_frequency);
-	
-			if (arv_option_trigger != NULL)
-				arv_camera_set_trigger (global.pArvcamera, arv_option_trigger);
-	
-			if (arv_option_software_trigger > 0.0) 
-			{
-				arv_camera_set_trigger (global.pArvcamera, "Software");
-				software_trigger_source = g_timeout_add ((double) (0.5 + 1000.0 / arv_option_software_trigger),
-														 emit_software_trigger, global.pArvcamera);
-			}
-	
-		}
-	
-	
 		arv_camera_start_acquisition (global.pArvcamera);
+
 		ApplicationData applicationdata;
 		applicationdata.buffer_count=0;
 		applicationdata.main_loop = 0;
@@ -461,8 +546,8 @@ int main(int argc, char** argv)
 	
 		g_main_loop_run (applicationdata.main_loop);
 	
-		if (software_trigger_source > 0)
-			g_source_remove (software_trigger_source);
+		if (global.idsrcTrigger)
+			g_source_remove(global.idsrcTrigger);
 	
 		signal (SIGINT, pSigintHandlerOld);
 	
