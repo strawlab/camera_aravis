@@ -212,7 +212,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     changedGain         = (global.config.gain != config.gain);
     changedAcquisitionMode = (global.config.acquisitionmode != config.acquisitionmode);
     changedTriggersource= (global.config.triggersource != config.triggersource);
-    changedTriggerrate  = (global.config.triggerrate != config.triggerrate);
+    changedTriggerrate  = (global.config.softwarerate != config.softwarerate);
 //    changedRoi          = (global.config.xRoi != config.xRoi) // Aravis has trouble changing ROI on-the-fly.
 //    						|| (global.config.yRoi != config.yRoi) 
 //    						|| (global.config.widthRoi != config.widthRoi)
@@ -281,12 +281,12 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     {
     	if (!g_strcmp0(szTriggersource,"Software"))
     	{
-        	ROS_INFO ("Set triggerrate = %f", 1000.0/ceil(1000.0 / config.triggerrate));
+        	ROS_INFO ("Set softwarerate = %f", 1000.0/ceil(1000.0 / config.softwarerate));
     		// Turn on software timer callback.
     		if (global.idsrcTrigger)
     			g_source_remove(global.idsrcTrigger);
     			
-    		global.idsrcTrigger = g_timeout_add ((guint)ceil(1000.0 / config.triggerrate), emit_software_trigger_callback, global.pArvcamera);
+    		global.idsrcTrigger = g_timeout_add ((guint)ceil(1000.0 / config.softwarerate), emit_software_trigger_callback, global.pArvcamera);
     	}
     	else
     	{
