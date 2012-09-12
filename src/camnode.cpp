@@ -251,6 +251,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     	arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(config.autoexposure));
     	dur.sleep();
         config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
+        config.autoexposure = (int)ARV_AUTO_OFF;
     }
     if (changedAutogain)
     {
@@ -258,6 +259,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     	arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(config.autogain));
     	dur.sleep();
         config.gain = arv_camera_get_gain (global.pArvcamera);
+    	config.autogain = (int)ARV_AUTO_OFF;
     }
     if (changedAcquisitionMode)
     {
