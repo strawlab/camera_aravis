@@ -311,37 +311,121 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 
 static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata)
 {
-    ArvBuffer *pBuffer;
+	static uint64_t	 c0 = 0L;
+	static uint64_t  cm = 0L;
+	static uint64_t  r0 = 0L;
+	static uint64_t  rm = 0L;
+	static uint64_t  n0 = 0L;
+	static int64_t   cm_dot_hat = 0L;
+	static int64_t   rm_dot_hat = 0L;
+	static int64_t	 dm = 0L;
+	static uint64_t	 tm = 0L;
+	static int		 s_bInitialized = FALSE;
+	
+	uint64_t  		 cn = 0L;
+	uint64_t  		 rn = 0L;
+	uint64_t  		 nn = 0L;
+	int64_t  		 cn_dot_hat = 0L;
+	int64_t  		 rn_dot_hat = 0L;
+	int64_t  		 dn = 0L;
+	uint64_t		 tn = 0L;
 
+	int64_t			 alpha_top = 1L;	// A fraction in integer form.
+	int64_t			 alpha_bot = 1024L;
+	int	a_top;
+	int a_bot;
+    ArvBuffer		*pBuffer;
+
+	if (ros::param::has("/alpha_top"))
+	{
+		ros::param::get("/alpha_top", a_top);
+		alpha_top = a_top;
+	}
+	else
+		alpha_top = 4L;
+	
+	if (ros::param::has("/alpha_bot"))
+	{
+		ros::param::get("/alpha_bot", a_bot);
+		alpha_bot = a_bot;
+	}
+	else
+		alpha_bot = 1024L;
+    
     pBuffer = arv_stream_try_pop_buffer (pStream);
 
     if (pBuffer != NULL) 
     {
         if (pBuffer->status == ARV_BUFFER_STATUS_SUCCESS) 
         {
+			sensor_msgs::Image msg;
+			
         	pApplicationdata->buffer_count++;
 			std::vector<uint8_t> this_data(pBuffer->size);
 			memcpy(&this_data[0], pBuffer->data, pBuffer->size);
 
-			sensor_msgs::Image msg;
-			msg.header.stamp = ros::Time::now(); // host timestamps (else pBuffer->timestamp_ns)
-			msg.header.seq = pBuffer->frame_id;
-			msg.header.frame_id = global.config.frame_id;
-			msg.width = global.widthRoi;
-			msg.height = global.heightRoi;
-			msg.encoding = global.pszPixelformat;
-			msg.step = global.widthRoi;
-			msg.data = this_data;
-
-			// get current CameraInfo data
-			global.camerainfo = global.pCameraInfoManager->getCameraInfo();
-			global.camerainfo.header.stamp = msg.header.stamp;
-			global.camerainfo.header.seq = msg.header.seq;
-			global.camerainfo.header.frame_id = msg.header.frame_id;
-			global.camerainfo.width = global.widthRoi;
-			global.camerainfo.height = global.heightRoi;
-
-            global.publisher.publish(msg, global.camerainfo);
+			if (!s_bInitialized)
+			{
+				c0	= (uint64_t)pBuffer->timestamp_ns; 
+				r0	= ros::Time::now().toNSec();
+				n0	= pBuffer->frame_id;
+				
+				s_bInitialized = TRUE;
+			}
+			else
+			{
+				// Timestamp drift controller.
+				cn				= (uint64_t)pBuffer->timestamp_ns;				// Camera now
+				rn	 			= ros::Time::now().toNSec();					// ROS now
+				nn				= pBuffer->frame_id;							// framenumber now
+				
+				//ROS_WARN("%d", nn-n0);
+				
+				if (nn-n0 > 10)
+				{
+					cn_dot_hat	= (alpha_top * (int64_t)(cn-cm) + (alpha_bot-alpha_top) * cm_dot_hat) / alpha_bot;		// Estimate of camera clock rate (clocks per frame).
+					rn_dot_hat  = (alpha_top * (int64_t)(rn-rm) + (alpha_bot-alpha_top) * rm_dot_hat) / alpha_bot;		// Estimate of ROS clock rate (clocks per frame).
+				}
+				else
+				{
+					cn_dot_hat  =              (int64_t)(cn-cm);	
+					rn_dot_hat  =              (int64_t)(rn-rm);	
+				}
+				
+				dn				= (1L * (cn_dot_hat-rn_dot_hat) + (0L) * dm) / 1L;						// Difference in clock rates.
+				tn		 		= (cn-c0+r0) + (uint64_t)(dn*(int64_t)(nn-n0));
+				ROS_WARN("cn_dot_hat-rn_dot_hat = %12lu-%12lu = %8ld,\tdiff=%12ld,\t%8ld,\t%8ld", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-tm), cn-cm, rn-rm);
+				//ROS_WARN("cn_dot_hat-rn_dot_hat = %08X-%08X = %08X,\tdiff=%08X,\t%08X,\t%08X", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-rn), cn-cm, rn-rm);
+	
+				rm = rn;
+				cm = cn;
+				rm_dot_hat = rn_dot_hat;
+				cm_dot_hat = cn_dot_hat;
+				dm = dn;
+				tm = tn;
+				
+						
+				msg.header.stamp.fromNSec(tn);  //= (tn & 0xFFFFFFFF00000000) >> 32;
+				//msg.header.stamp.nsecs = (tn & 0x00000000FFFFFFFF);
+				msg.header.seq = pBuffer->frame_id;
+				msg.header.frame_id = global.config.frame_id;
+				msg.width = global.widthRoi;
+				msg.height = global.heightRoi;
+				msg.encoding = global.pszPixelformat;
+				msg.step = global.widthRoi;
+				msg.data = this_data;
+	
+				// get current CameraInfo data
+				global.camerainfo = global.pCameraInfoManager->getCameraInfo();
+				global.camerainfo.header.stamp = msg.header.stamp;
+				global.camerainfo.header.seq = msg.header.seq;
+				global.camerainfo.header.frame_id = msg.header.frame_id;
+				global.camerainfo.width = global.widthRoi;
+				global.camerainfo.height = global.heightRoi;
+	
+				global.publisher.publish(msg, global.camerainfo);
+			}	
+				
         }
         arv_stream_push_buffer (pStream, pBuffer);
     }
