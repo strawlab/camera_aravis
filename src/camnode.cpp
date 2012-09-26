@@ -126,8 +126,8 @@ ArvStream *CreateStream(void)
 {
 	gboolean arv_option_auto_socket_buffer = FALSE;
 	gboolean arv_option_no_packet_resend = FALSE;
-	unsigned int arv_option_packet_timeout = 20;
-	unsigned int arv_option_frame_retention = 100;
+	unsigned int arv_option_packet_timeout = 40; // milliseconds
+	unsigned int arv_option_frame_retention = 200;
 
 	
 	ArvStream *pStream = arv_camera_create_stream (global.pArvcamera, NULL, NULL);
@@ -189,7 +189,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     int             changedGain;
     int             changedAcquisitionMode;
     int             changedTriggersource;
-    int             changedTriggerrate;
+    int             changedSoftwarerate;
 //    int             changedRoi;
     int             changedFrameid;
     
@@ -212,7 +212,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     changedGain         = (global.config.gain != config.gain);
     changedAcquisitionMode = (global.config.acquisitionmode != config.acquisitionmode);
     changedTriggersource= (global.config.triggersource != config.triggersource);
-    changedTriggerrate  = (global.config.softwarerate != config.softwarerate);
+    changedSoftwarerate  = (global.config.softwarerate != config.softwarerate);
 //    changedRoi          = (global.config.xRoi != config.xRoi) // Aravis has trouble changing ROI on-the-fly.
 //    						|| (global.config.yRoi != config.yRoi) 
 //    						|| (global.config.widthRoi != config.widthRoi)
@@ -227,10 +227,10 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
     if (changedExposure || ((changedFramerate 
     		                 || changedAutogain || changedGain || changedFrameid 
-    		                 || changedAcquisitionMode || changedTriggersource || changedTriggerrate) && ArvAutoFromInt(config.autoexposure)==ARV_AUTO_ONCE)) 
+    		                 || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && ArvAutoFromInt(config.autoexposure)==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
     if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid 
-    		             || changedAcquisitionMode || changedTriggersource || changedTriggerrate) && ArvAutoFromInt(config.autogain)==ARV_AUTO_ONCE)) 
+    		             || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && ArvAutoFromInt(config.autogain)==ARV_AUTO_ONCE)) 
     	config.autogain = (int)ARV_AUTO_OFF;
 
     
@@ -277,7 +277,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     	arv_camera_set_trigger_source (global.pArvcamera, szTriggersource);
     	arv_camera_set_trigger (global.pArvcamera, szTriggersource);
     }
-    if (changedTriggersource || changedTriggerrate)
+    if (changedTriggersource || changedSoftwarerate)
     {
     	if (!g_strcmp0(szTriggersource,"Software"))
     	{
@@ -353,7 +353,6 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 		alpha_bot = 1024L;
     
     pBuffer = arv_stream_try_pop_buffer (pStream);
-
     if (pBuffer != NULL) 
     {
         if (pBuffer->status == ARV_BUFFER_STATUS_SUCCESS) 
@@ -380,6 +379,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 				nn				= pBuffer->frame_id;							// framenumber now
 				
 				//ROS_WARN("%d", nn-n0);
+				//ROS_WARN("rostime %llu-%llu = %llu", rn, r0, (int64_t)(rn-rm));
 				
 				if (nn-n0 > 10)
 				{
@@ -393,8 +393,8 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 				}
 				
 				dn				= (1L * (cn_dot_hat-rn_dot_hat) + (0L) * dm) / 1L;						// Difference in clock rates.
-				tn		 		= (cn-c0+r0) + (uint64_t)(dn*(int64_t)(nn-n0));
-				ROS_WARN("cn_dot_hat-rn_dot_hat = %12lu-%12lu = %8ld,\tdiff=%12ld,\t%8ld,\t%8ld", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-tm), cn-cm, rn-rm);
+				tn		 		= tm+rn_dot_hat; //(cn-c0+r0) - (uint64_t)(dn*(int64_t)(nn-n0));
+				ROS_WARN("cn_dot_hat-rn_dot_hat = %16lld-%16lld = %16lld,\tdiff=%8lld,\t%8lld,\t%8lld, id=%08X", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-tm), cn-cm, rn-rm, nn);
 				//ROS_WARN("cn_dot_hat-rn_dot_hat = %08X-%08X = %08X,\tdiff=%08X,\t%08X,\t%08X", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-rn), cn-cm, rn-rm);
 	
 				rm = rn;
@@ -427,6 +427,9 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 			}	
 				
         }
+        else
+        	ROS_WARN ("Frame error: %d", pBuffer->status);
+        	
         arv_stream_push_buffer (pStream, pBuffer);
     }
 }
