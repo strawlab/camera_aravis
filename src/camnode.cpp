@@ -11,6 +11,7 @@
 #include <ros/time.h>
 #include <ros/duration.h>
 #include <sensor_msgs/Image.h>
+#include <std_msgs/Int64.h>
 #include <sensor_msgs/image_encodings.h>
 #include <image_transport/image_transport.h>
 #include <camera_info_manager/camera_info_manager.h>
@@ -19,6 +20,9 @@
 #include <driver_base/SensorLevels.h>
 #include <tf/transform_listener.h>
 #include <camera_aravis/CameraAravisConfig.h>
+
+
+//#define TUNING	// Allows tuning the gains for the timestamp controller.  Publishes output on topic /dt, and receives gains on params /kp, /ki, /kd
 
 
 //#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
@@ -63,6 +67,10 @@ struct
 	const char                             *pszPixelformat;
 	ros::NodeHandle 					   *pNode;
 	ArvCamera 							   *pArvcamera;
+#ifdef TUNING			
+	ros::Publisher 							*ppubInt64;
+#endif
+
 } global;
 
 
@@ -74,48 +82,21 @@ typedef struct
 // ------------------------------------
 
 
+// Conversions from integers to Arv types.
+const char 			*szTriggersourceFromInt[] 		= {"Software", "Line1", "Line2"};
+ArvAcquisitionMode 	 arvAcquisitionModeFromInt[] 	= {ARV_ACQUISITION_MODE_CONTINUOUS, ARV_ACQUISITION_MODE_SINGLE_FRAME};
+ArvAuto 			 arvAutoFromInt[]				= {ARV_AUTO_OFF, ARV_AUTO_ONCE, ARV_AUTO_CONTINUOUS};
+const char 			*szBufferStatusFromInt[] 		= {
+														"ARV_BUFFER_STATUS_SUCCESS",
+														"ARV_BUFFER_STATUS_CLEARED",
+														"ARV_BUFFER_STATUS_TIMEOUT",
+														"ARV_BUFFER_STATUS_MISSING_PACKETS",
+														"ARV_BUFFER_STATUS_WRONG_PACKET_ID",
+														"ARV_BUFFER_STATUS_SIZE_MISMATCH",
+														"ARV_BUFFER_STATUS_FILLING",
+														"ARV_BUFFER_STATUS_ABORTED"
+														};
 
-const char *szTriggersource0 = "Software";
-const char *szTriggersource1 = "Line1";
-const char *szTriggersource2 = "Line2";
-
-const char *SzTriggersourceFromInt (int iSource)
-{
-	const char *rv;
-	switch (iSource)
-	{
-	case 0: rv=szTriggersource0; break; 
-	case 1: rv=szTriggersource1; break; 
-	case 2: rv=szTriggersource2; break; 
-	default: rv=NULL; break; 
-	}
-	return rv;
-}
-ArvAcquisitionMode ArvAcquisitionModeFromInt (int iMode)
-{
-	ArvAcquisitionMode rv;
-	
-	switch (iMode)
-	{
-	case 0: rv=ARV_ACQUISITION_MODE_CONTINUOUS; break; 
-	case 1: rv=ARV_ACQUISITION_MODE_SINGLE_FRAME; break; 
-	default: rv=ARV_ACQUISITION_MODE_CONTINUOUS; break; 
-	}
-	return rv;
-}
-ArvAuto ArvAutoFromInt (int iAuto)
-{
-	ArvAuto rv;
-	
-	switch (iAuto)
-	{
-	case 0: rv=ARV_AUTO_OFF; break; 
-	case 1: rv=ARV_AUTO_ONCE; break; 
-	case 2: rv=ARV_AUTO_CONTINUOUS; break; 
-	default: rv=ARV_AUTO_OFF; break; 
-	}
-	return rv;
-}
 
 static void set_cancel (int signal)
 {
@@ -199,7 +180,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     std::string tf_prefix = tf::getPrefixParam(*global.pNode);
     ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
     
-    szTriggersource = SzTriggersourceFromInt(config.triggersource);
+    szTriggersource = szTriggersourceFromInt[config.triggersource];
     if (config.frame_id == "")
         config.frame_id = "camera";
 
@@ -227,10 +208,10 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
     if (changedExposure || ((changedFramerate 
     		                 || changedAutogain || changedGain || changedFrameid 
-    		                 || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && ArvAutoFromInt(config.autoexposure)==ARV_AUTO_ONCE)) 
+    		                 || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && arvAutoFromInt[config.autoexposure]==ARV_AUTO_ONCE)) 
     	config.autoexposure = (int)ARV_AUTO_OFF;
     if (changedGain || ((changedFramerate || changedAutoexposure || changedExposure || changedFrameid 
-    		             || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && ArvAutoFromInt(config.autogain)==ARV_AUTO_ONCE)) 
+    		             || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && arvAutoFromInt[config.autogain]==ARV_AUTO_ONCE)) 
     	config.autogain = (int)ARV_AUTO_OFF;
 
     
@@ -247,24 +228,24 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     }
     if (changedAutoexposure)
     {
-    	ROS_INFO ("Set autoexposure = %s", arv_auto_to_string(ArvAutoFromInt(config.autoexposure)));
-    	arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(config.autoexposure));
+    	ROS_INFO ("Set autoexposure = %s", arv_auto_to_string(arvAutoFromInt[config.autoexposure]));
+    	arv_camera_set_exposure_time_auto(global.pArvcamera, arvAutoFromInt[config.autoexposure]);
     	dur.sleep();
         config.exposure = arv_camera_get_exposure_time (global.pArvcamera);
         config.autoexposure = (int)ARV_AUTO_OFF;
     }
     if (changedAutogain)
     {
-    	ROS_INFO ("Set autogain = %s", arv_auto_to_string(ArvAutoFromInt(config.autogain)));
-    	arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(config.autogain));
+    	ROS_INFO ("Set autogain = %s", arv_auto_to_string(arvAutoFromInt[config.autogain]));
+    	arv_camera_set_gain_auto(global.pArvcamera, arvAutoFromInt[config.autogain]);
     	dur.sleep();
         config.gain = arv_camera_get_gain (global.pArvcamera);
     	config.autogain = (int)ARV_AUTO_OFF;
     }
     if (changedAcquisitionMode)
     {
-    	ROS_INFO ("Set acquisition mode = %s", arv_acquisition_mode_to_string(ArvAcquisitionModeFromInt(config.acquisitionmode)));
-    	arv_camera_set_acquisition_mode(global.pArvcamera, ArvAcquisitionModeFromInt(config.acquisitionmode));
+    	ROS_INFO ("Set acquisition mode = %s", arv_acquisition_mode_to_string(arvAcquisitionModeFromInt[config.acquisitionmode]));
+    	arv_camera_set_acquisition_mode(global.pArvcamera, arvAcquisitionModeFromInt[config.acquisitionmode]);
     }
     if (changedFramerate)
     {
@@ -311,47 +292,58 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 
 static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata)
 {
-	static uint64_t	 c0 = 0L;
-	static uint64_t  cm = 0L;
-	static uint64_t  r0 = 0L;
-	static uint64_t  rm = 0L;
-	static uint64_t  n0 = 0L;
-	static int64_t   cm_dot_hat = 0L;
-	static int64_t   rm_dot_hat = 0L;
-	static int64_t	 dm = 0L;
-	static uint64_t	 tm = 0L;
-	static int		 s_bInitialized = FALSE;
-	
-	uint64_t  		 cn = 0L;
-	uint64_t  		 rn = 0L;
-	uint64_t  		 nn = 0L;
-	int64_t  		 cn_dot_hat = 0L;
-	int64_t  		 rn_dot_hat = 0L;
-	int64_t  		 dn = 0L;
-	uint64_t		 tn = 0L;
+	static uint64_t  cm = 0L;	// Camera time prev
+	uint64_t  		 cn = 0L;	// Camera time now
 
-	int64_t			 alpha_top = 1L;	// A fraction in integer form.
-	int64_t			 alpha_bot = 1024L;
-	int	a_top;
-	int a_bot;
-    ArvBuffer		*pBuffer;
+	static uint64_t  rm = 0L;	// ROS time prev
+	uint64_t  		 rn = 0L;	// ROS time now
 
-	if (ros::param::has("/alpha_top"))
-	{
-		ros::param::get("/alpha_top", a_top);
-		alpha_top = a_top;
-	}
-	else
-		alpha_top = 4L;
+	static uint64_t	 tm = 0L;	// Calculated image time prev
+	uint64_t		 tn = 0L;	// Calculated image time now
+		
+	static int64_t   em = 0L;	// Error prev.
+	int64_t  		 en = 0L;	// Error now between calculated image time and ROS time.
+	int64_t  		 de = 0L;	// derivative.
+	int64_t  		 ie = 0L;	// integral.
+	int64_t			 u = 0L;	// Output of controller.
 	
-	if (ros::param::has("/alpha_bot"))
-	{
-		ros::param::get("/alpha_bot", a_bot);
-		alpha_bot = a_bot;
-	}
-	else
-		alpha_bot = 1024L;
+	int64_t			 kp1 = 0L;		// Fractional gains in integer form.
+	int64_t			 kp2 = 1024L;
+	int64_t			 kd1 = 0L;
+	int64_t			 kd2 = 1024L;
+	int64_t			 ki1 = -1L;		// A gentle pull toward zero.
+	int64_t			 ki2 = 1024L;
+
+	static uint32_t	 iFrame = 0;	// Frame counter.
     
+	ArvBuffer		*pBuffer;
+
+	
+#ifdef TUNING			
+	std_msgs::Int64  msgInt64;
+	int 			 kp = 0;
+	int 			 kd = 0;
+	int 			 ki = 0;
+    
+	if (ros::param::has("/kp"))
+	{
+		ros::param::get("/kp", kp);
+		kp1 = kp;
+	}
+	
+	if (ros::param::has("/kd"))
+	{
+		ros::param::get("/kd", kd);
+		kd1 = kd;
+	}
+	
+	if (ros::param::has("/ki"))
+	{
+		ros::param::get("/ki", ki);
+		ki1 = ki;
+	}
+#endif
+	
     pBuffer = arv_stream_try_pop_buffer (pStream);
     if (pBuffer != NULL) 
     {
@@ -363,74 +355,65 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 			std::vector<uint8_t> this_data(pBuffer->size);
 			memcpy(&this_data[0], pBuffer->data, pBuffer->size);
 
-			if (!s_bInitialized)
+
+			// Camera/ROS Timestamp coordination.
+			cn				= (uint64_t)pBuffer->timestamp_ns;				// Camera now
+			rn	 			= ros::Time::now().toNSec();					// ROS now
+			
+			if (iFrame < 10)
 			{
-				c0	= (uint64_t)pBuffer->timestamp_ns; 
-				r0	= ros::Time::now().toNSec();
-				n0	= pBuffer->frame_id;
-				
-				s_bInitialized = TRUE;
-			}
-			else
-			{
-				// Timestamp drift controller.
-				cn				= (uint64_t)pBuffer->timestamp_ns;				// Camera now
-				rn	 			= ros::Time::now().toNSec();					// ROS now
-				nn				= pBuffer->frame_id;							// framenumber now
-				
-				//ROS_WARN("%d", nn-n0);
-				//ROS_WARN("rostime %llu-%llu = %llu", rn, r0, (int64_t)(rn-rm));
-				
-				if (nn-n0 > 10)
-				{
-					cn_dot_hat	= (alpha_top * (int64_t)(cn-cm) + (alpha_bot-alpha_top) * cm_dot_hat) / alpha_bot;		// Estimate of camera clock rate (clocks per frame).
-					rn_dot_hat  = (alpha_top * (int64_t)(rn-rm) + (alpha_bot-alpha_top) * rm_dot_hat) / alpha_bot;		// Estimate of ROS clock rate (clocks per frame).
-				}
-				else
-				{
-					cn_dot_hat  =              (int64_t)(cn-cm);	
-					rn_dot_hat  =              (int64_t)(rn-rm);	
-				}
-				
-				dn				= (1L * (cn_dot_hat-rn_dot_hat) + (0L) * dm) / 1L;						// Difference in clock rates.
-				tn		 		= tm+rn_dot_hat; //(cn-c0+r0) - (uint64_t)(dn*(int64_t)(nn-n0));
-				ROS_WARN("cn_dot_hat-rn_dot_hat = %16lld-%16lld = %16lld,\tdiff=%8lld,\t%8lld,\t%8lld, id=%08X", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-tm), cn-cm, rn-rm, nn);
-				//ROS_WARN("cn_dot_hat-rn_dot_hat = %08X-%08X = %08X,\tdiff=%08X,\t%08X,\t%08X", cn_dot_hat, rn_dot_hat, dn, (int64_t)(tn-rn), cn-cm, rn-rm);
-	
-				rm = rn;
 				cm = cn;
-				rm_dot_hat = rn_dot_hat;
-				cm_dot_hat = cn_dot_hat;
-				dm = dn;
-				tm = tn;
-				
-						
-				msg.header.stamp.fromNSec(tn);  //= (tn & 0xFFFFFFFF00000000) >> 32;
-				//msg.header.stamp.nsecs = (tn & 0x00000000FFFFFFFF);
-				msg.header.seq = pBuffer->frame_id;
-				msg.header.frame_id = global.config.frame_id;
-				msg.width = global.widthRoi;
-				msg.height = global.heightRoi;
-				msg.encoding = global.pszPixelformat;
-				msg.step = global.widthRoi;
-				msg.data = this_data;
-	
-				// get current CameraInfo data
-				global.camerainfo = global.pCameraInfoManager->getCameraInfo();
-				global.camerainfo.header.stamp = msg.header.stamp;
-				global.camerainfo.header.seq = msg.header.seq;
-				global.camerainfo.header.frame_id = msg.header.frame_id;
-				global.camerainfo.width = global.widthRoi;
-				global.camerainfo.height = global.heightRoi;
-	
-				global.publisher.publish(msg, global.camerainfo);
-			}	
+				tm  = rn;
+			}
+			
+			// Control the error between the computed image timestamp and the ROS timestamp.
+			en = (int64_t)tm + (int64_t)cn - (int64_t)cm - (int64_t)rn; // i.e. tn-rn, but calced from prior values.
+			de = en-em;
+			ie += en;
+			u = kp1*(en/kp2) + ki1*(ie/ki2) + kd1*(de/kd2);  // kp<0, ki<0, kd>0
+			
+			// Compute the new timestamp.
+			tn = (uint64_t)((int64_t)tm + (int64_t)cn-(int64_t)cm + u);
+
+#ifdef TUNING			
+			ROS_WARN("en=%16ld, ie=%16ld, de=%16ld, u=%16ld + %16ld + %16ld = %16ld", en, ie, de, kp1*(en/kp2), ki1*(ie/ki2), kd1*(de/kd2), u);
+			ROS_WARN("cn=%16lu, rn=%16lu, cn-cm=%8ld, rn-rm=%8ld, tn-tm=%8ld, tn-rn=%ld", cn, rn, cn-cm, rn-rm, (int64_t)tn-(int64_t)tm, tn-rn);
+			msgInt64.data = tn-rn; //cn-cm+tn-tm; //
+			global.ppubInt64->publish(msgInt64);
+#endif
+			
+			// Save prior values.
+			rm = rn;
+			cm = cn;
+			tm = tn;
+			em = en;
+			
+			// Construct the image message.
+			msg.header.stamp.fromNSec(tn);
+			msg.header.seq = pBuffer->frame_id;
+			msg.header.frame_id = global.config.frame_id;
+			msg.width = global.widthRoi;
+			msg.height = global.heightRoi;
+			msg.encoding = global.pszPixelformat;
+			msg.step = global.widthRoi;
+			msg.data = this_data;
+
+			// get current CameraInfo data
+			global.camerainfo = global.pCameraInfoManager->getCameraInfo();
+			global.camerainfo.header.stamp = msg.header.stamp;
+			global.camerainfo.header.seq = msg.header.seq;
+			global.camerainfo.header.frame_id = msg.header.frame_id;
+			global.camerainfo.width = global.widthRoi;
+			global.camerainfo.height = global.heightRoi;
+
+			global.publisher.publish(msg, global.camerainfo);
 				
         }
         else
-        	ROS_WARN ("Frame error: %d", pBuffer->status);
+        	ROS_WARN ("Frame error: %s", szBufferStatusFromInt[pBuffer->status]);
         	
         arv_stream_push_buffer (pStream, pBuffer);
+        iFrame++;
     }
 }
 
@@ -551,16 +534,20 @@ int main(int argc, char** argv)
 		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 
 		// Initial camera settings.
-		arv_camera_set_exposure_time_auto(global.pArvcamera, ArvAutoFromInt(global.config.autoexposure));
-		arv_camera_set_gain_auto(global.pArvcamera, ArvAutoFromInt(global.config.autogain));
+		arv_camera_set_exposure_time_auto(global.pArvcamera, arvAutoFromInt[global.config.autoexposure]);
+		arv_camera_set_gain_auto(global.pArvcamera, arvAutoFromInt[global.config.autogain]);
 		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
 		arv_camera_set_gain(global.pArvcamera, global.config.gain);
 		arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
-		arv_camera_set_acquisition_mode (global.pArvcamera, ArvAcquisitionModeFromInt(global.config.acquisitionmode));
+		arv_camera_set_acquisition_mode (global.pArvcamera, arvAcquisitionModeFromInt[global.config.acquisitionmode]);
     	arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
-
+#ifdef TUNING			
+    	ros::Publisher pubInt64 = global.pNode->advertise<std_msgs::Int64>("dt", 100);
+    	global.ppubInt64 = &pubInt64;
+#endif
+    	
     	// Start the camerainfo manager.
 		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, arv_camera_get_device_id(global.pArvcamera));
 	
