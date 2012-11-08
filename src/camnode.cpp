@@ -37,7 +37,7 @@ static gboolean emit_software_trigger_callback (void *abstract_data);
 
 
 // Global variables -------------------
-struct
+struct global_s
 {
 	gboolean 								bCancel;
 	image_transport::CameraPublisher 		publisher;
@@ -295,7 +295,9 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 	static uint64_t  cm = 0L;	// Camera time prev
 	uint64_t  		 cn = 0L;	// Camera time now
 
+#ifdef TUNING			
 	static uint64_t  rm = 0L;	// ROS time prev
+#endif
 	uint64_t  		 rn = 0L;	// ROS time now
 
 	static uint64_t	 tm = 0L;	// Calculated image time prev
@@ -380,10 +382,10 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 			ROS_WARN("cn=%16lu, rn=%16lu, cn-cm=%8ld, rn-rm=%8ld, tn-tm=%8ld, tn-rn=%ld", cn, rn, cn-cm, rn-rm, (int64_t)tn-(int64_t)tm, tn-rn);
 			msgInt64.data = tn-rn; //cn-cm+tn-tm; //
 			global.ppubInt64->publish(msgInt64);
+			rm = rn;
 #endif
 			
 			// Save prior values.
-			rm = rn;
 			cm = cn;
 			tm = tn;
 			em = en;
