@@ -454,8 +454,8 @@ static gboolean periodic_task_cb (void *abstract_data)
 
 int main(int argc, char** argv) 
 {
+    char   *pszGuid = NULL;
     char    szGuid[512];
-    char   *pszGuid;
     int		nInterfaces = 0;
     int		nDevices = 0;
     int 	i=0;
@@ -473,7 +473,7 @@ int main(int argc, char** argv)
         ROS_WARN("[camnode] Started in the global namespace! This is probably wrong. Start camnode "
                  "in the camera namespace.\nExample command-line usage:\n"
                  "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
-    }	std::string		stGuid;
+    }
 
 
     g_type_init ();
