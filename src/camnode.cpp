@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 #include <glib.h>
 
@@ -132,6 +133,7 @@ ArvStream *CreateStream(void)
 				  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
 				  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
 				  NULL);
+	std::string		stGuid;
 
 	gint payload = arv_camera_get_payload (global.pArvcamera);
 	for (int i=0; i<50; i++)
@@ -452,7 +454,8 @@ static gboolean periodic_task_cb (void *abstract_data)
 
 int main(int argc, char** argv) 
 {
-    char   *pszCamera = NULL;
+    char    szGuid[512];
+    char   *pszGuid;
     int		nInterfaces = 0;
     int		nDevices = 0;
     int 	i=0;
@@ -470,7 +473,8 @@ int main(int argc, char** argv)
         ROS_WARN("[camnode] Started in the global namespace! This is probably wrong. Start camnode "
                  "in the camera namespace.\nExample command-line usage:\n"
                  "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
-    }
+    }	std::string		stGuid;
+
 
     g_type_init ();
 
@@ -488,161 +492,183 @@ int main(int argc, char** argv)
     
     if (nDevices>0)
     {
-		global.pArvcamera = arv_camera_new(pszCamera);
-		if (global.pArvcamera == NULL) 
-			ROS_WARN ("Could not open camera.");
+		// Get the camera guid from either the command-line or as a parameter.
+    	if (argc==2)
+    	{
+    		strcpy(szGuid, argv[1]);
+    		pszGuid = szGuid;
+    	}
+    	else
+    		if (ros::param::has("guid"))
+    		{
+    			std::string		stGuid;
+    			
+    			ros::param::get("guid", stGuid);
+    			strcpy (szGuid, stGuid.c_str());
+        		pszGuid = szGuid;
+    		}
+    		else
+    			pszGuid = NULL;
+    	
+    	
+    	// Open the camera, and set it up.
+		global.pArvcamera = arv_camera_new(pszGuid);
+		if (global.pArvcamera != NULL) 
+		{
+			global.pNode = new ros::NodeHandle();
+		
+			int arv_option_horizontal_binning = -1;
+			int arv_option_vertical_binning = -1;
+			gint dx, dy;
 	
-		global.pNode = new ros::NodeHandle();
+			// Get parameter bounds.
+			arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
+			arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
+			arv_camera_get_sensor_size(global.pArvcamera, &widthSensor, &heightSensor);
+			arv_camera_set_region (global.pArvcamera, 0, 0, widthSensor, heightSensor);
+			arv_camera_get_width_bounds(global.pArvcamera, &global.widthRoiMin, &global.widthRoiMax);
+			arv_camera_get_height_bounds(global.pArvcamera, &global.heightRoiMin, &global.heightRoiMax);
+			global.xRoiMin = 0;
+			global.xRoiMax = global.widthRoiMax - global.widthRoiMin;
+			global.yRoiMin = 0;
+			global.yRoiMax = global.heightRoiMax - global.heightRoiMin;
+			global.configMin.framerate =    0.0;
+			global.configMax.framerate = 1000.0;
+			
+			// Get ROI from parameter server.
+			if (ros::param::has("roi/x"))
+				ros::param::get("roi/x", global.xRoi);
+			else
+				global.xRoi = 0;
 	
-		int arv_option_horizontal_binning = -1;
-		int arv_option_vertical_binning = -1;
-		gint dx, dy;
-
-		// Get parameter bounds.
-		arv_camera_get_exposure_time_bounds(global.pArvcamera, &global.configMin.exposure, &global.configMax.exposure);
-		arv_camera_get_gain_bounds(global.pArvcamera, &global.configMin.gain, &global.configMax.gain);
-		arv_camera_get_sensor_size(global.pArvcamera, &widthSensor, &heightSensor);
-		arv_camera_set_region (global.pArvcamera, 0, 0, widthSensor, heightSensor);
-		arv_camera_get_width_bounds(global.pArvcamera, &global.widthRoiMin, &global.widthRoiMax);
-		arv_camera_get_height_bounds(global.pArvcamera, &global.heightRoiMin, &global.heightRoiMax);
-		global.xRoiMin = 0;
-		global.xRoiMax = global.widthRoiMax - global.widthRoiMin;
-		global.yRoiMin = 0;
-		global.yRoiMax = global.heightRoiMax - global.heightRoiMin;
-		global.configMin.framerate =    0.0;
-		global.configMax.framerate = 1000.0;
-		
-		// Get ROI from parameter server.
-		if (ros::param::has("roi/x"))
-			ros::param::get("roi/x", global.xRoi);
-		else
-			global.xRoi = 0;
-
-		if (ros::param::has("roi/y"))
-			ros::param::get("roi/y", global.yRoi);
-		else
-			global.yRoi = 0;
-		
-		if (ros::param::has("roi/width"))
-			ros::param::get("roi/width", global.widthRoi);
-		else
-			global.widthRoi = 0;
-
-		if (ros::param::has("roi/height"))
-			ros::param::get("roi/height", global.heightRoi);
-		else
-			global.heightRoi = 0;
-		
-		ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
-
-		// Initial camera settings.
-		arv_camera_set_exposure_time_auto(global.pArvcamera, arvAutoFromInt[global.config.autoexposure]);
-		arv_camera_set_gain_auto(global.pArvcamera, arvAutoFromInt[global.config.autogain]);
-		arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
-		arv_camera_set_gain(global.pArvcamera, global.config.gain);
-		arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
-		arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
-		arv_camera_set_acquisition_mode (global.pArvcamera, arvAcquisitionModeFromInt[global.config.acquisitionmode]);
-    	arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
+			if (ros::param::has("roi/y"))
+				ros::param::get("roi/y", global.yRoi);
+			else
+				global.yRoi = 0;
+			
+			if (ros::param::has("roi/width"))
+				ros::param::get("roi/width", global.widthRoi);
+			else
+				global.widthRoi = 0;
+	
+			if (ros::param::has("roi/height"))
+				ros::param::get("roi/height", global.heightRoi);
+			else
+				global.heightRoi = 0;
+			
+			ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
+	
+			// Initial camera settings.
+			arv_camera_set_exposure_time_auto(global.pArvcamera, arvAutoFromInt[global.config.autoexposure]);
+			arv_camera_set_gain_auto(global.pArvcamera, arvAutoFromInt[global.config.autogain]);
+			arv_camera_set_exposure_time(global.pArvcamera, global.config.exposure);
+			arv_camera_set_gain(global.pArvcamera, global.config.gain);
+			arv_camera_set_region (global.pArvcamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
+			arv_camera_set_binning (global.pArvcamera, arv_option_horizontal_binning, arv_option_vertical_binning);
+			arv_camera_set_acquisition_mode (global.pArvcamera, arvAcquisitionModeFromInt[global.config.acquisitionmode]);
+			arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 #ifdef TUNING			
-    	ros::Publisher pubInt64 = global.pNode->advertise<std_msgs::Int64>("dt", 100);
-    	global.ppubInt64 = &pubInt64;
+			ros::Publisher pubInt64 = global.pNode->advertise<std_msgs::Int64>("dt", 100);
+			global.ppubInt64 = &pubInt64;
 #endif
     	
-    	// Start the camerainfo manager.
-		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, arv_camera_get_device_id(global.pArvcamera));
-	
-		// Start the dynamic_reconfigure server.
-		dynamic_reconfigure::Server<Config> srv;
-		dynamic_reconfigure::Server<Config>::CallbackType fnCallback;
-		fnCallback = boost::bind(&ros_reconfigure_callback, _1, _2);
-		srv.setCallback(fnCallback);
-		ros::Duration(2.0).sleep();
-	
-		// Get parameter current values.
-		arv_camera_get_region (global.pArvcamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
-		arv_camera_get_binning (global.pArvcamera, &dx, &dy);
-		global.config.exposure  = arv_camera_get_exposure_time (global.pArvcamera);
-		global.config.gain      = arv_camera_get_gain (global.pArvcamera);
-		global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
-		global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pArvcamera)))->str;
-
+			// Start the camerainfo manager.
+			global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, arv_camera_get_device_id(global.pArvcamera));
 		
+			// Start the dynamic_reconfigure server.
+			dynamic_reconfigure::Server<Config> srv;
+			dynamic_reconfigure::Server<Config>::CallbackType fnCallback;
+			fnCallback = boost::bind(&ros_reconfigure_callback, _1, _2);
+			srv.setCallback(fnCallback);
+			ros::Duration(2.0).sleep();
 		
-		// Print information.
-		ROS_INFO ("    Using Camera Configuration:");
-		ROS_INFO ("    ---------------------------");
-		ROS_INFO ("    Vendor name          = %s", arv_camera_get_vendor_name (global.pArvcamera));
-		ROS_INFO ("    Model name           = %s", arv_camera_get_model_name (global.pArvcamera));
-		ROS_INFO ("    Device id            = %s", arv_camera_get_device_id (global.pArvcamera));
-		ROS_INFO ("    Sensor width         = %d", widthSensor); 
-		ROS_INFO ("    Sensor height        = %d", heightSensor);
-		ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
-		ROS_INFO ("    Horizontal binning   = %d", dx);
-		ROS_INFO ("    Vertical binning     = %d", dy);
-		ROS_INFO ("    Pixel format         = %s", global.pszPixelformat);
-		ROS_INFO ("    Acquisition Mode     = %s", arv_acquisition_mode_to_string(arv_camera_get_acquisition_mode(global.pArvcamera)));
-		ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
-		ROS_INFO ("    Trigger Source       = %s", arv_camera_get_trigger_source(global.pArvcamera));
-		ROS_INFO ("    Exposure             = %g us in range [%g,%g]", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
-		ROS_INFO ("    Gain                 = %g %% in range [%g,%g]", global.config.gain, global.configMin.gain, global.configMax.gain);
-		ROS_INFO ("    Can set Framerate:     %s", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
-		ROS_INFO ("    Can set AutoExposure:  %s", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
-		ROS_INFO ("    Can set AutoGain:      %s", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
-		ROS_INFO ("    Can set Exposure:      %s", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
-		ROS_INFO ("    Can set Gain:          %s", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
+			// Get parameter current values.
+			arv_camera_get_region (global.pArvcamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
+			arv_camera_get_binning (global.pArvcamera, &dx, &dy);
+			global.config.exposure  = arv_camera_get_exposure_time (global.pArvcamera);
+			global.config.gain      = arv_camera_get_gain (global.pArvcamera);
+			global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
+			global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pArvcamera)))->str;
+	
+			
+			
+			// Print information.
+			ROS_INFO ("    Using Camera Configuration:");
+			ROS_INFO ("    ---------------------------");
+			ROS_INFO ("    Vendor name          = %s", arv_camera_get_vendor_name (global.pArvcamera));
+			ROS_INFO ("    Model name           = %s", arv_camera_get_model_name (global.pArvcamera));
+			ROS_INFO ("    Device id            = %s", arv_camera_get_device_id (global.pArvcamera));
+			ROS_INFO ("    Sensor width         = %d", widthSensor); 
+			ROS_INFO ("    Sensor height        = %d", heightSensor);
+			ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
+			ROS_INFO ("    Horizontal binning   = %d", dx);
+			ROS_INFO ("    Vertical binning     = %d", dy);
+			ROS_INFO ("    Pixel format         = %s", global.pszPixelformat);
+			ROS_INFO ("    Acquisition Mode     = %s", arv_acquisition_mode_to_string(arv_camera_get_acquisition_mode(global.pArvcamera)));
+			ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
+			ROS_INFO ("    Trigger Source       = %s", arv_camera_get_trigger_source(global.pArvcamera));
+			ROS_INFO ("    Exposure             = %g us in range [%g,%g]", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
+			ROS_INFO ("    Gain                 = %g %% in range [%g,%g]", global.config.gain, global.configMin.gain, global.configMax.gain);
+			ROS_INFO ("    Can set Framerate:     %s", arv_camera_is_frame_rate_available(global.pArvcamera) ? "True" : "False");
+			ROS_INFO ("    Can set AutoExposure:  %s", arv_camera_is_exposure_auto_available(global.pArvcamera) ? "True" : "False");
+			ROS_INFO ("    Can set AutoGain:      %s", arv_camera_is_gain_auto_available(global.pArvcamera) ? "True" : "False");
+			ROS_INFO ("    Can set Exposure:      %s", arv_camera_is_exposure_time_available(global.pArvcamera) ? "True" : "False");
+			ROS_INFO ("    Can set Gain:          %s", arv_camera_is_gain_available(global.pArvcamera) ? "True" : "False");
+			
+			ArvStream *pStream = CreateStream();
 		
-		ArvStream *pStream = CreateStream();
+			// topic is "image_raw", with queue size of 1
+			// image transport interfaces
+			image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.pNode);
+			global.publisher = transport->advertiseCamera("image_raw", 1);
+		
+			arv_camera_stop_acquisition (global.pArvcamera);
+			arv_camera_start_acquisition (global.pArvcamera);
 	
-		// topic is "image_raw", with queue size of 1
-		// image transport interfaces
-		image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.pNode);
-		global.publisher = transport->advertiseCamera("image_raw", 1);
+			ApplicationData applicationdata;
+			applicationdata.buffer_count=0;
+			applicationdata.main_loop = 0;
+		
+			g_signal_connect (pStream, "new-buffer", G_CALLBACK (new_buffer_cb), &applicationdata);
+			arv_stream_set_emit_signals (pStream, TRUE);
+		
+			g_signal_connect (arv_camera_get_device (global.pArvcamera), "control-lost",
+							  G_CALLBACK (control_lost_cb), NULL);
+		
+			g_timeout_add_seconds (1, periodic_task_cb, &applicationdata);
+		
+			applicationdata.main_loop = g_main_loop_new (NULL, FALSE);
+		
+			void (*pSigintHandlerOld)(int);
+			pSigintHandlerOld = signal (SIGINT, set_cancel);
+		
+			g_main_loop_run (applicationdata.main_loop);
+		
+			if (global.idsrcTrigger)
+				g_source_remove(global.idsrcTrigger);
+		
+			signal (SIGINT, pSigintHandlerOld);
+		
+			g_main_loop_unref (applicationdata.main_loop);
+		
+			{
+				guint64 n_completed_buffers;
+				guint64 n_failures;
+				guint64 n_underruns;
+		
+				arv_stream_get_statistics (pStream, &n_completed_buffers, &n_failures, &n_underruns);
 	
-		arv_camera_stop_acquisition (global.pArvcamera);
-		arv_camera_start_acquisition (global.pArvcamera);
-
-		ApplicationData applicationdata;
-		applicationdata.buffer_count=0;
-		applicationdata.main_loop = 0;
-	
-		g_signal_connect (pStream, "new-buffer", G_CALLBACK (new_buffer_cb), &applicationdata);
-		arv_stream_set_emit_signals (pStream, TRUE);
-	
-		g_signal_connect (arv_camera_get_device (global.pArvcamera), "control-lost",
-						  G_CALLBACK (control_lost_cb), NULL);
-	
-		g_timeout_add_seconds (1, periodic_task_cb, &applicationdata);
-	
-		applicationdata.main_loop = g_main_loop_new (NULL, FALSE);
-	
-		void (*pSigintHandlerOld)(int);
-		pSigintHandlerOld = signal (SIGINT, set_cancel);
-	
-		g_main_loop_run (applicationdata.main_loop);
-	
-		if (global.idsrcTrigger)
-			g_source_remove(global.idsrcTrigger);
-	
-		signal (SIGINT, pSigintHandlerOld);
-	
-		g_main_loop_unref (applicationdata.main_loop);
-	
-		{
-			guint64 n_completed_buffers;
-			guint64 n_failures;
-			guint64 n_underruns;
-	
-			arv_stream_get_statistics (pStream, &n_completed_buffers, &n_failures, &n_underruns);
-
-			ROS_INFO ("Completed buffers = %Lu", (unsigned long long) n_completed_buffers);
-			ROS_INFO ("Failures          = %Lu", (unsigned long long) n_failures);
-			ROS_INFO ("Underruns         = %Lu", (unsigned long long) n_underruns);
-		}
-		arv_camera_stop_acquisition (global.pArvcamera);
-	
-		g_object_unref (pStream);
+				ROS_INFO ("Completed buffers = %Lu", (unsigned long long) n_completed_buffers);
+				ROS_INFO ("Failures          = %Lu", (unsigned long long) n_failures);
+				ROS_INFO ("Underruns         = %Lu", (unsigned long long) n_underruns);
+			}
+			arv_camera_stop_acquisition (global.pArvcamera);
+		
+			g_object_unref (pStream);
+		} // if (global.pArvcamera != NULL)
+		else
+			ROS_WARN ("Could not open camera: %s", pszGuid ? pszGuid : "NULL");
     }
     else
     	ROS_WARN ("No cameras detected.");
