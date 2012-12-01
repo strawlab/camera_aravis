@@ -66,7 +66,7 @@ struct global_s
 	int                                     heightRoiMax;
 	
 	const char                             *pszPixelformat;
-	ros::NodeHandle 					   *pNode;
+	ros::NodeHandle 					   *phNode;
 	ArvCamera 							   *pArvcamera;
 #ifdef TUNING			
 	ros::Publisher 							*ppubInt64;
@@ -133,7 +133,6 @@ ArvStream *CreateStream(void)
 				  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
 				  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
 				  NULL);
-	std::string		stGuid;
 
 	gint payload = arv_camera_get_payload (global.pArvcamera);
 	for (int i=0; i<50; i++)
@@ -179,7 +178,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     const char     *szTriggersource;
     
     
-    std::string tf_prefix = tf::getPrefixParam(*global.pNode);
+    std::string tf_prefix = tf::getPrefixParam(*global.phNode);
     ROS_DEBUG_STREAM("tf_prefix: " << tf_prefix);
     
     szTriggersource = szTriggersourceFromInt[config.triggersource];
@@ -329,21 +328,21 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 	int 			 kd = 0;
 	int 			 ki = 0;
     
-	if (ros::param::has("/kp"))
+	if (global.phNode->hasParam(ros::this_node::getName()+"/kp"))
 	{
-		ros::param::get("/kp", kp);
+		global.phNode->getParam(ros::this_node::getName()+"/kp", kp);
 		kp1 = kp;
 	}
 	
-	if (ros::param::has("/kd"))
+	if (global.phNode->hasParam(ros::this_node::getName()+"/kd"))
 	{
-		ros::param::get("/kd", kd);
+		global.phNode->getParam(ros::this_node::getName()+"/kd", kd);
 		kd1 = kd;
 	}
 	
-	if (ros::param::has("/ki"))
+	if (global.phNode->hasParam(ros::this_node::getName()+"/ki"))
 	{
-		ros::param::get("/ki", ki);
+		global.phNode->getParam(ros::this_node::getName()+"/ki", ki);
 		ki1 = ki;
 	}
 #endif
@@ -474,6 +473,7 @@ int main(int argc, char** argv)
                  "in the camera namespace.\nExample command-line usage:\n"
                  "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
     }
+    global.phNode = new ros::NodeHandle();
 
 
     g_type_init ();
@@ -489,7 +489,6 @@ int main(int argc, char** argv)
     for (i=0; i<nDevices; i++)
     	ROS_INFO ("Device%d: %s", i, arv_get_device_id(i));
     
-    
     if (nDevices>0)
     {
 		// Get the camera guid from either the command-line or as a parameter.
@@ -499,11 +498,11 @@ int main(int argc, char** argv)
     		pszGuid = szGuid;
     	}
     	else
-    		if (ros::param::has("guid"))
+    		if (global.phNode->hasParam(ros::this_node::getName()+"/guid"))
     		{
     			std::string		stGuid;
     			
-    			ros::param::get("guid", stGuid);
+    			global.phNode->getParam(ros::this_node::getName()+"/guid", stGuid);
     			strcpy (szGuid, stGuid.c_str());
         		pszGuid = szGuid;
     		}
@@ -515,8 +514,6 @@ int main(int argc, char** argv)
 		global.pArvcamera = arv_camera_new(pszGuid);
 		if (global.pArvcamera != NULL) 
 		{
-			global.pNode = new ros::NodeHandle();
-		
 			int arv_option_horizontal_binning = -1;
 			int arv_option_vertical_binning = -1;
 			gint dx, dy;
@@ -536,23 +533,23 @@ int main(int argc, char** argv)
 			global.configMax.framerate = 1000.0;
 			
 			// Get ROI from parameter server.
-			if (ros::param::has("roi/x"))
-				ros::param::get("roi/x", global.xRoi);
+			if (global.phNode->hasParam(ros::this_node::getName()+"/roi/x"))
+				global.phNode->getParam(ros::this_node::getName()+"/roi/x", global.xRoi);
 			else
 				global.xRoi = 0;
 	
-			if (ros::param::has("roi/y"))
-				ros::param::get("roi/y", global.yRoi);
+			if (global.phNode->hasParam(ros::this_node::getName()+"/roi/y"))
+				global.phNode->getParam(ros::this_node::getName()+"/roi/y", global.yRoi);
 			else
 				global.yRoi = 0;
 			
-			if (ros::param::has("roi/width"))
-				ros::param::get("roi/width", global.widthRoi);
+			if (global.phNode->hasParam(ros::this_node::getName()+"/roi/width"))
+				global.phNode->getParam(ros::this_node::getName()+"/roi/width", global.widthRoi);
 			else
 				global.widthRoi = 0;
 	
-			if (ros::param::has("roi/height"))
-				ros::param::get("roi/height", global.heightRoi);
+			if (global.phNode->hasParam(ros::this_node::getName()+"/roi/height"))
+				global.phNode->getParam(ros::this_node::getName()+"/roi/height", global.heightRoi);
 			else
 				global.heightRoi = 0;
 			
@@ -569,12 +566,12 @@ int main(int argc, char** argv)
 			arv_camera_set_frame_rate(global.pArvcamera, global.config.framerate);
 
 #ifdef TUNING			
-			ros::Publisher pubInt64 = global.pNode->advertise<std_msgs::Int64>("dt", 100);
+			ros::Publisher pubInt64 = global.phNode->advertise<std_msgs::Int64>(ros::this_node::getName()+"/dt", 100);
 			global.ppubInt64 = &pubInt64;
 #endif
     	
 			// Start the camerainfo manager.
-			global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.pNode, arv_camera_get_device_id(global.pArvcamera));
+			global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.phNode, arv_camera_get_device_id(global.pArvcamera));
 		
 			// Start the dynamic_reconfigure server.
 			dynamic_reconfigure::Server<Config> srv;
@@ -620,8 +617,8 @@ int main(int argc, char** argv)
 		
 			// topic is "image_raw", with queue size of 1
 			// image transport interfaces
-			image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.pNode);
-			global.publisher = transport->advertiseCamera("image_raw", 1);
+			image_transport::ImageTransport *transport = new image_transport::ImageTransport(*global.phNode);
+			global.publisher = transport->advertiseCamera(ros::this_node::getName()+"/image_raw", 1);
 		
 			arv_camera_stop_acquisition (global.pArvcamera);
 			arv_camera_start_acquisition (global.pArvcamera);
@@ -668,10 +665,12 @@ int main(int argc, char** argv)
 			g_object_unref (pStream);
 		} // if (global.pArvcamera != NULL)
 		else
-			ROS_WARN ("Could not open camera: %s", pszGuid ? pszGuid : "NULL");
+			ROS_WARN ("Could not open camera: %s", pszGuid ? pszGuid : "(any)");
     }
     else
     	ROS_WARN ("No cameras detected.");
+    
+    delete global.phNode;
     
     return 0;
 }
