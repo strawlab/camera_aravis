@@ -571,7 +571,7 @@ int main(int argc, char** argv)
 #endif
     	
 			// Start the camerainfo manager.
-			global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(*global.phNode, arv_camera_get_device_id(global.pArvcamera));
+			global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(ros::NodeHandle(ros::this_node::getName()), arv_camera_get_device_id(global.pArvcamera));
 		
 			// Start the dynamic_reconfigure server.
 			dynamic_reconfigure::Server<Config> srv;

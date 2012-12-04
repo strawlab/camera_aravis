@@ -27,16 +27,21 @@ $ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 ------------------------
 It supports multiple cameras, each of which may be specified on the command-line, or via parameter.
 Runs one node per camera.  For example, specifying the camera via the command-line:
+
 $ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode Basler-21237813
 
+
 And specifying the camera via a parameter:
+
 $ rosparam set cam1/guid Basler-21237813
+
 $ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
 
 ------------------------
 It support the dynamic_reconfigure protocol, and once the node is running, you may adjust 
 its parameters by running the following and then manipulating the GUI:
+
 $ rosrun dynamic_reconfigure reconfigure_gui
 
 
