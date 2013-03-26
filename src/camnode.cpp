@@ -31,6 +31,8 @@
 #define CLIP(x,lo,hi)	MIN(MAX((lo),(x)),(hi))
 #define THROW_ERROR(m) throw std::string((m))
 
+#define ARV_PIXEL_FORMAT_BIT_PER_PIXEL(pixel_format)  (((pixel_format) >> 16) & 0xff)
+#define ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(pixel_format) ((((pixel_format) >> 16) & 0xff) >> 3)
 typedef camera_aravis::CameraAravisConfig Config;
 
 ArvStream      *CreateStream(void);
@@ -66,6 +68,7 @@ struct global_s
 	int                                     heightRoiMax;
 	
 	const char                             *pszPixelformat;
+	unsigned								nBytesPixel;
 	ros::NodeHandle 					   *phNode;
 	ArvCamera 							   *pArvcamera;
 #ifdef TUNING			
@@ -398,7 +401,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 			msg.width = global.widthRoi;
 			msg.height = global.heightRoi;
 			msg.encoding = global.pszPixelformat;
-			msg.step = global.widthRoi;
+			msg.step = msg.width * global.nBytesPixel;
 			msg.data = this_data;
 
 			// get current CameraInfo data
@@ -587,7 +590,8 @@ int main(int argc, char** argv)
 			global.config.gain      = arv_camera_get_gain (global.pArvcamera);
 			global.config.framerate = arv_camera_get_frame_rate (global.pArvcamera);
 			global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pArvcamera)))->str;
-	
+			global.nBytesPixel      = ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(arv_camera_get_pixel_format(global.pArvcamera));
+
 			
 			
 			// Print information.
