@@ -120,10 +120,10 @@ static void set_cancel (int signal)
 
 ArvGvStream *CreateStream(void)
 {
-	gboolean arv_option_auto_socket_buffer = FALSE;
-	gboolean arv_option_no_packet_resend = FALSE;
-	unsigned int arv_option_packet_timeout = 40; // milliseconds
-	unsigned int arv_option_frame_retention = 200;
+	gboolean 		bAutoBuffer = FALSE;
+	gboolean 		bPacketResend = TRUE;
+	unsigned int 	timeoutPacket = 40; // milliseconds
+	unsigned int 	timeoutFrameRetention = 200;
 
 	
 	// Set the network packet size.
@@ -133,32 +133,42 @@ ArvGvStream *CreateStream(void)
 		global.mtu = 576;
 	arv_gv_device_set_packet_size((ArvGvDevice *)global.pDevice, global.mtu);
 
+
 	ArvGvStream *pStream = (ArvGvStream *)arv_device_create_stream (global.pDevice, NULL, NULL);
+	if (pStream)
+	{
+		ArvBuffer	*pBuffer;
+		gint 		 nbytesPayload;
 
-	if (pStream == NULL) 
-		ROS_WARN("could not open stream");
 
-	if (!ARV_IS_GV_STREAM (pStream)) 
-		ROS_WARN("stream is not GV_STREAM");
+		if (!ARV_IS_GV_STREAM (pStream))
+			ROS_WARN("stream is not GV_STREAM");
 
-	if (arv_option_auto_socket_buffer)
+		if (bAutoBuffer)
+			g_object_set (pStream,
+					      "socket-buffer",
+						  ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
+						  "socket-buffer-size", 0,
+						  NULL);
+		if (!bPacketResend)
+			g_object_set (pStream,
+					      "packet-resend",
+						  bPacketResend ? ARV_GV_STREAM_PACKET_RESEND_ALWAYS : ARV_GV_STREAM_PACKET_RESEND_NEVER,
+						  NULL);
 		g_object_set (pStream,
-					  "socket-buffer", ARV_GV_STREAM_SOCKET_BUFFER_AUTO,
-					  "socket-buffer-size", 0,
+				          "packet-timeout",
+						  (unsigned) timeoutPacket * 1000,
+						  "frame-retention", (unsigned) timeoutFrameRetention * 1000,
 					  NULL);
-	if (arv_option_no_packet_resend)
-		g_object_set (pStream,
-					  "packet-resend", ARV_GV_STREAM_PACKET_RESEND_NEVER,
-					  NULL);
-	g_object_set (pStream,
-				  "packet-timeout", (unsigned) arv_option_packet_timeout * 1000,
-				  "frame-retention", (unsigned) arv_option_frame_retention * 1000,
-				  NULL);
-
-	gint payload = arv_camera_get_payload (global.pCamera);
-	for (int i=0; i<50; i++)
-		arv_stream_push_buffer ((ArvStream *)pStream, arv_buffer_new (payload, NULL));
 	
+		// Load up some buffers.
+		nbytesPayload = arv_camera_get_payload (global.pCamera);
+		for (int i=0; i<50; i++)
+		{
+			pBuffer = arv_buffer_new (nbytesPayload, NULL);
+			arv_stream_push_buffer ((ArvStream *)pStream, pBuffer);
+		}
+	}
 	return pStream;
 }	
 
@@ -491,9 +501,11 @@ static gboolean emit_software_trigger_callback (void *pCamera)
     return TRUE;
 }
 
-static gboolean periodic_task_cb (void *abstract_data)
+// periodic_task_cb()
+// Check for termination, and quit the main loop.
+static gboolean periodic_task_cb (void *applicationdata)
 {
-    ApplicationData *pData = (ApplicationData*)abstract_data;
+    ApplicationData *pData = (ApplicationData*)applicationdata;
 
     //  ROS_INFO ("Frame rate = %d Hz", pData->nBuffers);
     pData->nBuffers = 0;
