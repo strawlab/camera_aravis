@@ -35,7 +35,7 @@
 #define ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(pixel_format) ((((pixel_format) >> 16) & 0xff) >> 3)
 typedef camera_aravis::CameraAravisConfig Config;
 
-static gboolean emit_software_trigger_callback (void *abstract_data);
+static gboolean emit_software_trigger_callback (void *);
 
 
 // Global variables -------------------
@@ -56,6 +56,7 @@ struct global_s
 	int										isImplementedExposureTime;
 	int										isImplementedExposureAuto;
 	int										isImplementedGainAuto;
+	int										isImplementedFocusPos;
 
 	int                                     widthSensor;
 	int                                     heightSensor;
@@ -79,6 +80,8 @@ struct global_s
 	ros::NodeHandle 					   *phNode;
 	ArvCamera 							   *pCamera;
 	ArvDevice 							   *pDevice;
+	int										mtu;
+	int										useAutoContrast;
 #ifdef TUNING			
 	ros::Publisher 							*ppubInt64;
 #endif
@@ -123,6 +126,13 @@ ArvGvStream *CreateStream(void)
 	unsigned int arv_option_frame_retention = 200;
 
 	
+	// Set the network packet size.
+	if (global.phNode->hasParam(ros::this_node::getName()+"/mtu"))
+		global.phNode->getParam(ros::this_node::getName()+"/mtu", global.mtu);
+	else
+		global.mtu = 576;
+	arv_gv_device_set_packet_size((ArvGvDevice *)global.pDevice, global.mtu);
+
 	ArvGvStream *pStream = (ArvGvStream *)arv_device_create_stream (global.pDevice, NULL, NULL);
 
 	if (pStream == NULL) 
@@ -185,6 +195,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     int             changedSoftwarerate;
 //    int             changedRoi;
     int             changedFrameid;
+    int             changedFocusPos;
     
     const char     *szTriggersource;
     
@@ -211,6 +222,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 //    						|| (global.config.widthRoi != config.widthRoi)
 //    						|| (global.config.heightRoi != config.heightRoi);
     changedFrameid      = (global.config.frame_id != config.frame_id);
+    changedFocusPos     = global.isImplementedFocusPos ? (global.config.focuspos != config.focuspos) : FALSE;
 
     // Limit params to legal values.
     config.framerate  = CLIP(config.framerate, global.configMin.framerate, global.configMax.framerate);
@@ -218,6 +230,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     config.gain       = CLIP(config.gain,      global.configMin.gain,      global.configMax.gain);
 //    ClipRoi (&config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
     config.frame_id   = tf::resolve(tf_prefix, config.frame_id);
+    config.focuspos       = CLIP(config.focuspos,      global.configMin.focuspos,      global.configMax.focuspos);
     if (changedExposure || ((changedFramerate 
     		                 || changedAutogain || changedGain || changedFrameid 
     		                 || changedAcquisitionMode || changedTriggersource || changedSoftwarerate) && arvAutoFromInt[config.autoexposure]==ARV_AUTO_ONCE)) 
@@ -279,7 +292,7 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
     		if (global.idsrcTrigger)
     			g_source_remove(global.idsrcTrigger);
     			
-    		global.idsrcTrigger = g_timeout_add ((guint)ceil(1000.0 / config.softwarerate), emit_software_trigger_callback, global.pCamera);
+    		global.idsrcTrigger = g_timeout_add ((guint)ceil(1000.0 / config.softwarerate), emit_software_trigger_callback, global.pDevice);
     	}
     	else
     	{
@@ -296,6 +309,14 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 //    	//arv_camera_get_region(global.pCamera, &config.xRoi, &config.yRoi, &config.widthRoi, &config.heightRoi);
 //    	arv_camera_start_acquisition (global.pCamera);
 //    }
+    if (changedFocusPos)
+    {
+    	ROS_INFO ("Request FocusPos = %d", config.focuspos);
+    	arv_device_set_integer_feature_value(global.pDevice, "FocusPos", config.focuspos);
+    	dur.sleep();
+    	config.focuspos = arv_device_get_integer_feature_value(global.pDevice, "FocusPos");
+    	ROS_INFO ("Set FocusPos = %d", config.focuspos);
+    }
 
 
     global.config = config;
@@ -369,6 +390,31 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
 			std::vector<uint8_t> this_data(pBuffer->size);
 			memcpy(&this_data[0], pBuffer->data, pBuffer->size);
 
+			// Adjust the pixels so they cover the full range.
+			if (global.useAutoContrast)
+			{
+				guint16 maxPixel = 65535;
+				guint16 *p;
+				guint16 lo=maxPixel;
+				guint16 hi=0;
+				size_t	nbytesPixel;
+
+				nbytesPixel = sizeof(guint16);
+
+				// Get the min & max pixel values.
+				for (p=(guint16 *)&this_data[0]; p<((guint16 *)&this_data[0] + pBuffer->size/nbytesPixel); p++)
+				{
+					lo = (*p < lo) ? *p : lo;
+					hi = (*p > hi) ? *p : hi;
+				}
+
+				// Rescale the pixels.
+				for (p=(guint16 *)&this_data[0]; p<((guint16 *)&this_data[0] + pBuffer->size/nbytesPixel); p++)
+				{
+					*p -= lo;
+					*p *= maxPixel / (hi-lo);
+				}
+			}
 
 			// Camera/ROS Timestamp coordination.
 			cn				= (uint64_t)pBuffer->timestamp_ns;				// Camera now
@@ -546,6 +592,8 @@ int main(int argc, char** argv)
 			global.isImplementedExposureAuto = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
 			pNode = arv_device_get_feature (global.pDevice, "GainAuto");
 			global.isImplementedGainAuto = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+			pNode = arv_device_get_feature (global.pDevice, "FocusPos");
+			global.isImplementedFocusPos = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
 
 			// Get parameter bounds.
 			arv_camera_get_exposure_time_bounds	(global.pCamera, &global.configMin.exposure, &global.configMax.exposure);
@@ -554,6 +602,10 @@ int main(int argc, char** argv)
 			arv_camera_set_region 				(global.pCamera, 0, 0, global.widthSensor, global.heightSensor);
 			arv_camera_get_width_bounds			(global.pCamera, &global.widthRoiMin, &global.widthRoiMax);
 			arv_camera_get_height_bounds		(global.pCamera, &global.heightRoiMin, &global.heightRoiMax);
+			gint64 focusMin64, focusMax64;
+			arv_device_get_integer_feature_bounds (global.pDevice, "FocusPos", &focusMin64, &focusMax64);
+			global.configMin.focuspos = focusMin64;
+			global.configMax.focuspos = focusMax64;
 
 			global.xRoiMin = 0;
 			global.xRoiMax = global.widthRoiMax - global.widthRoiMin;
@@ -585,6 +637,10 @@ int main(int argc, char** argv)
 			
 			ClipRoi (&global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 	
+			if (global.phNode->hasParam(ros::this_node::getName()+"/useAutoContrast"))
+				global.phNode->getParam(ros::this_node::getName()+"/useAutoContrast", global.useAutoContrast);
+			else
+				global.useAutoContrast = FALSE;
 			// Initial camera settings.
 			arv_camera_set_exposure_time_auto(global.pCamera, arvAutoFromInt[global.config.autoexposure]);
 			arv_camera_set_gain_auto(global.pCamera, arvAutoFromInt[global.config.autogain]);
@@ -621,6 +677,7 @@ int main(int argc, char** argv)
 			global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pCamera)))->str;
 			global.nBytesPixel      = ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(arv_camera_get_pixel_format(global.pCamera));
 
+			global.config.focuspos  = global.isImplementedFocusPos ? arv_device_get_integer_feature_value (global.pDevice, "FocusPos") : 0;
 			
 			
 			// Print information.
@@ -636,7 +693,6 @@ int main(int argc, char** argv)
 			ROS_INFO ("    Vertical binning     = %d", dy);
 			ROS_INFO ("    Pixel format         = %s", global.pszPixelformat);
 			ROS_INFO ("    Acquisition Mode     = %s", arv_acquisition_mode_to_string(arv_camera_get_acquisition_mode(global.pCamera)));
-			ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
 			ROS_INFO ("    Trigger Source       = %s", arv_camera_get_trigger_source(global.pCamera));
 			ROS_INFO ("    Can set Framerate:     %s", global.isImplementedFramerate ? "True" : "False");
 			if (global.isImplementedFramerate)
