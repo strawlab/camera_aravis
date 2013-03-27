@@ -783,7 +783,7 @@ int main(int argc, char** argv)
 				arv_camera_set_exposure_time(global.pCamera, global.config.exposure);
 			if (global.isImplementedGain)
 				arv_camera_set_gain(global.pCamera, global.config.gain);
-			arv_camera_set_region (global.pCamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
+			//arv_camera_set_region (global.pCamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 			arv_camera_set_binning (global.pCamera, arv_option_horizontal_binning, arv_option_vertical_binning);
 			arv_camera_set_acquisition_mode (global.pCamera, arvAcquisitionModeFromInt[global.config.acquisitionmode]);
 			if (global.isImplementedFramerate)
