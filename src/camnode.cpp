@@ -51,6 +51,14 @@ struct global_s
 	Config 									configMax;
 	int                                     idsrcTrigger;
 	
+	int										isImplementedFramerate;
+	int										isImplementedGain;
+	int										isImplementedExposureTime;
+	int										isImplementedExposureAuto;
+	int										isImplementedGainAuto;
+
+	int                                     widthSensor;
+	int                                     heightSensor;
 	int                                     xRoi;
 	int                                     yRoi;
 	int                                     widthRoi;
@@ -190,11 +198,11 @@ void ros_reconfigure_callback(Config &config, uint32_t level)
 
     
     // Find what's changed.
-    changedFramerate    = (global.config.framerate != config.framerate);
+    changedFramerate    = global.isImplementedFramerate ? (global.config.framerate != config.framerate) : FALSE;
     changedAutoexposure = (global.config.autoexposure != config.autoexposure);
     changedAutogain     = (global.config.autogain != config.autogain);
-    changedExposure     = (global.config.exposure != config.exposure);
-    changedGain         = (global.config.gain != config.gain);
+    changedExposure     = global.isImplementedExposureTime ? (global.config.exposure != config.exposure) : FALSE;
+    changedGain         = global.isImplementedGain ? (global.config.gain != config.gain) : FALSE;
     changedAcquisitionMode = (global.config.acquisitionmode != config.acquisitionmode);
     changedTriggersource= (global.config.triggersource != config.triggersource);
     changedSoftwarerate  = (global.config.softwarerate != config.softwarerate);
@@ -461,8 +469,7 @@ int main(int argc, char** argv)
     int		nInterfaces = 0;
     int		nDevices = 0;
     int 	i=0;
-    int     widthSensor;
-    int     heightSensor;
+    ArvGcNode 	*pNode;
     
     
     global.bCancel = FALSE;
@@ -523,13 +530,31 @@ int main(int argc, char** argv)
 			gint 	dx, dy;
 			GError	*error=NULL;
 	
+			ROS_WARN("Opened: %s", pszGuid ? pszGuid : "(any)");
+
+	    	global.pDevice = arv_camera_get_device(global.pCamera);
+
+
+			// See if some basic camera features exist.
+			pNode = arv_device_get_feature (global.pDevice, "FrameRate");
+			global.isImplementedFramerate = pNode ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+			pNode = arv_device_get_feature (global.pDevice, "Gain");
+			global.isImplementedGain = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+			pNode = arv_device_get_feature (global.pDevice, "ExposureTimeAbs");
+			global.isImplementedExposureTime = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+			pNode = arv_device_get_feature (global.pDevice, "ExposureAuto");
+			global.isImplementedExposureAuto = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+			pNode = arv_device_get_feature (global.pDevice, "GainAuto");
+			global.isImplementedGainAuto = ARV_GC_FEATURE_NODE (pNode) ? arv_gc_feature_node_is_implemented (ARV_GC_FEATURE_NODE (pNode), &error) : FALSE;
+
 			// Get parameter bounds.
-			arv_camera_get_exposure_time_bounds(global.pCamera, &global.configMin.exposure, &global.configMax.exposure);
-			arv_camera_get_gain_bounds(global.pCamera, &global.configMin.gain, &global.configMax.gain);
-			arv_camera_get_sensor_size(global.pCamera, &widthSensor, &heightSensor);
-			arv_camera_set_region (global.pCamera, 0, 0, widthSensor, heightSensor);
-			arv_camera_get_width_bounds(global.pCamera, &global.widthRoiMin, &global.widthRoiMax);
-			arv_camera_get_height_bounds(global.pCamera, &global.heightRoiMin, &global.heightRoiMax);
+			arv_camera_get_exposure_time_bounds	(global.pCamera, &global.configMin.exposure, &global.configMax.exposure);
+			arv_camera_get_gain_bounds			(global.pCamera, &global.configMin.gain, &global.configMax.gain);
+			arv_camera_get_sensor_size			(global.pCamera, &global.widthSensor, &global.heightSensor);
+			arv_camera_set_region 				(global.pCamera, 0, 0, global.widthSensor, global.heightSensor);
+			arv_camera_get_width_bounds			(global.pCamera, &global.widthRoiMin, &global.widthRoiMax);
+			arv_camera_get_height_bounds		(global.pCamera, &global.heightRoiMin, &global.heightRoiMax);
+
 			global.xRoiMin = 0;
 			global.xRoiMax = global.widthRoiMax - global.widthRoiMin;
 			global.yRoiMin = 0;
@@ -563,12 +588,15 @@ int main(int argc, char** argv)
 			// Initial camera settings.
 			arv_camera_set_exposure_time_auto(global.pCamera, arvAutoFromInt[global.config.autoexposure]);
 			arv_camera_set_gain_auto(global.pCamera, arvAutoFromInt[global.config.autogain]);
-			arv_camera_set_exposure_time(global.pCamera, global.config.exposure);
-			arv_camera_set_gain(global.pCamera, global.config.gain);
+			if (global.isImplementedExposureTime)
+				arv_camera_set_exposure_time(global.pCamera, global.config.exposure);
+			if (global.isImplementedGain)
+				arv_camera_set_gain(global.pCamera, global.config.gain);
 			arv_camera_set_region (global.pCamera, global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 			arv_camera_set_binning (global.pCamera, arv_option_horizontal_binning, arv_option_vertical_binning);
 			arv_camera_set_acquisition_mode (global.pCamera, arvAcquisitionModeFromInt[global.config.acquisitionmode]);
-			arv_camera_set_frame_rate(global.pCamera, global.config.framerate);
+			if (global.isImplementedFramerate)
+				arv_camera_set_frame_rate(global.pCamera, global.config.framerate);
 
 #ifdef TUNING			
 			ros::Publisher pubInt64 = global.phNode->advertise<std_msgs::Int64>(ros::this_node::getName()+"/dt", 100);
@@ -588,9 +616,8 @@ int main(int argc, char** argv)
 			// Get parameter current values.
 			arv_camera_get_region (global.pCamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 			arv_camera_get_binning (global.pCamera, &dx, &dy);
-			global.config.exposure  = arv_camera_get_exposure_time (global.pCamera);
-			global.config.gain      = arv_camera_get_gain (global.pCamera);
-			global.config.framerate = arv_camera_get_frame_rate (global.pCamera);
+			global.config.exposure  = global.isImplementedExposureTime ? arv_camera_get_exposure_time (global.pCamera) : 0;
+			global.config.gain      = global.isImplementedGain ? arv_camera_get_gain (global.pCamera) : 0;
 			global.pszPixelformat   = g_string_ascii_down(g_string_new(arv_camera_get_pixel_format_as_string(global.pCamera)))->str;
 			global.nBytesPixel      = ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(arv_camera_get_pixel_format(global.pCamera));
 
@@ -602,8 +629,8 @@ int main(int argc, char** argv)
 			ROS_INFO ("    Vendor name          = %s", arv_camera_get_vendor_name (global.pCamera));
 			ROS_INFO ("    Model name           = %s", arv_camera_get_model_name (global.pCamera));
 			ROS_INFO ("    Device id            = %s", arv_camera_get_device_id (global.pCamera));
-			ROS_INFO ("    Sensor width         = %d", widthSensor); 
-			ROS_INFO ("    Sensor height        = %d", heightSensor);
+			ROS_INFO ("    Sensor width         = %d", global.widthSensor);
+			ROS_INFO ("    Sensor height        = %d", global.heightSensor);
 			ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 			ROS_INFO ("    Horizontal binning   = %d", dx);
 			ROS_INFO ("    Vertical binning     = %d", dy);
@@ -611,13 +638,30 @@ int main(int argc, char** argv)
 			ROS_INFO ("    Acquisition Mode     = %s", arv_acquisition_mode_to_string(arv_camera_get_acquisition_mode(global.pCamera)));
 			ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
 			ROS_INFO ("    Trigger Source       = %s", arv_camera_get_trigger_source(global.pCamera));
-			ROS_INFO ("    Exposure             = %g us in range [%g,%g]", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
-			ROS_INFO ("    Gain                 = %d %% in range [%d,%d]", global.config.gain, global.configMin.gain, global.configMax.gain);
-			ROS_INFO ("    Can set Framerate:     %s", arv_camera_is_frame_rate_available(global.pCamera) ? "True" : "False");
-			ROS_INFO ("    Can set AutoExposure:  %s", arv_camera_is_exposure_auto_available(global.pCamera) ? "True" : "False");
-			ROS_INFO ("    Can set AutoGain:      %s", arv_camera_is_gain_auto_available(global.pCamera) ? "True" : "False");
-			ROS_INFO ("    Can set Exposure:      %s", arv_camera_is_exposure_time_available(global.pCamera) ? "True" : "False");
-			ROS_INFO ("    Can set Gain:          %s", arv_camera_is_gain_available(global.pCamera) ? "True" : "False");
+			ROS_INFO ("    Can set Framerate:     %s", global.isImplementedFramerate ? "True" : "False");
+			if (global.isImplementedFramerate)
+			{
+				global.config.framerate = arv_camera_get_frame_rate (global.pCamera);
+				ROS_INFO ("    Framerate            = %g hz", global.config.framerate);
+			}
+
+			ROS_INFO ("    Can set Exposure:      %s", global.isImplementedExposureTime ? "True" : "False");
+			if (global.isImplementedExposureTime)
+			{
+				ROS_INFO ("    Can set AutoExposure:  %s", global.isImplementedExposureAuto ? "True" : "False");
+				ROS_INFO ("    Exposure             = %g us in range [%g,%g]", global.config.exposure, global.configMin.exposure, global.configMax.exposure);
+			}
+
+			ROS_INFO ("    Can set Gain:          %s", global.isImplementedGain ? "True" : "False");
+			if (global.isImplementedGain)
+			{
+				ROS_INFO ("    Can set AutoGain:      %s", global.isImplementedGainAuto ? "True" : "False");
+				ROS_INFO ("    Gain                 = %d %% in range [%d,%d]", global.config.gain, global.configMin.gain, global.configMax.gain);
+			}
+
+			ROS_INFO ("    Network Packet Size  = %u", arv_gv_device_get_packet_size((ArvGvDevice *)global.pDevice));
+
+			ROS_INFO ("    ---------------------------");
 			
 			
 
