@@ -492,6 +492,7 @@ static void new_buffer_cb (ArvStream *pStream, ApplicationData *pApplicationdata
         arv_stream_push_buffer (pStream, pBuffer);
         iFrame++;
     }
+    ros::spinOnce();
 }
 
 static void control_lost_cb (ArvGvDevice *gv_device)
@@ -522,7 +523,7 @@ static gboolean periodic_task_cb (void *applicationdata)
         return FALSE;
     }
 
-    ros::spinOnce();
+//    ros::spinOnce();
 
     return TRUE;
 }
