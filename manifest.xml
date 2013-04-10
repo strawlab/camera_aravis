@@ -4,7 +4,7 @@
      camera_aravis
 
   </description>
-  <author>strawlab</author>
+  <author>strawlab, Steve Safarik</author>
   <license>LGPL</license>
   <review status="unreviewed" notes=""/>
   <url>http://ros.org/wiki/camera_aravis</url>
