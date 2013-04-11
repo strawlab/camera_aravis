@@ -804,7 +804,7 @@ void WriteCameraFeaturesFromRosparam(void)
 					{
 						int			value = (bool)iter->second;
 						arv_device_set_integer_feature_value(global.pDevice, key.c_str(), value);
-						ROS_INFO("Read parameter %s: %d", key.c_str(), value);
+						ROS_INFO("Read parameter (bool) %s: %d", key.c_str(), value);
 					}
 					break;
 
@@ -812,7 +812,7 @@ void WriteCameraFeaturesFromRosparam(void)
 					{
 						int			value = (int)iter->second;
 						arv_device_set_integer_feature_value(global.pDevice, key.c_str(), value);
-						ROS_INFO("Read parameter %s: %d", key.c_str(), value);
+						ROS_INFO("Read parameter (int) %s: %d", key.c_str(), value);
 					}
 					break;
 
@@ -820,7 +820,7 @@ void WriteCameraFeaturesFromRosparam(void)
 					{
 						double		value = (double)iter->second;
 						arv_device_set_float_feature_value(global.pDevice, key.c_str(), value);
-						ROS_INFO("Read parameter %s: %f", key.c_str(), value);
+						ROS_INFO("Read parameter (float) %s: %f", key.c_str(), value);
 					}
 					break;
 
@@ -828,7 +828,7 @@ void WriteCameraFeaturesFromRosparam(void)
 					{
 						std::string	value = (std::string)iter->second;
 						arv_device_set_string_feature_value(global.pDevice, key.c_str(), value.c_str());
-						ROS_INFO("Read parameter %s: %s", key.c_str(), value.c_str());
+						ROS_INFO("Read parameter (string) %s: %s", key.c_str(), value.c_str());
 					}
 					break;
 
@@ -1019,7 +1019,7 @@ int main(int argc, char** argv)
 				arv_device_set_string_feature_value(global.pDevice, "TriggerSelector", "AcquisitionStart");
 				arv_device_set_string_feature_value(global.pDevice, "TriggerMode", "Off");
 				arv_device_set_string_feature_value(global.pDevice, "TriggerSelector", "FrameStart");
-				arv_device_set_string_feature_value(global.pDevice, "TriggerMode", "On");
+				arv_device_set_string_feature_value(global.pDevice, "TriggerMode", "Off");
 			}
 		}
 
