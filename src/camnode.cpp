@@ -925,8 +925,8 @@ int main(int argc, char** argv)
 			}
 		}
 
-		ROS_INFO("Opened: %s", pszGuid ? pszGuid : "(any)");
 		global.pDevice = arv_camera_get_device(global.pCamera);
+		ROS_INFO("Opened: %s-%s", arv_device_get_string_feature_value (global.pDevice, "DeviceVendorName"), arv_device_get_string_feature_value (global.pDevice, "DeviceID"));
 
 
 		// See if some basic camera features exist.
