@@ -921,6 +921,7 @@ int main(int argc, char** argv)
 			{
 				ROS_WARN ("Could not open camera %s.  Retrying...", pszGuid);
 				ros::Duration(1.0).sleep();
+			    ros::spinOnce();
 			}
 		}
 
@@ -1065,8 +1066,9 @@ int main(int argc, char** argv)
 		ROS_INFO ("    ROI x,y,w,h          = %d, %d, %d, %d", global.xRoi, global.yRoi, global.widthRoi, global.heightRoi);
 		ROS_INFO ("    Pixel format         = %s", global.pszPixelformat);
 		ROS_INFO ("    BytesPerPixel        = %d", global.nBytesPixel);
-		ROS_INFO ("    Acquisition Mode     = %s", arv_device_get_string_feature_value (global.pDevice, "AcquisitionMode"));
-		ROS_INFO ("    Trigger Source       = %s", arv_device_get_string_feature_value(global.pDevice, "TriggerSource"));
+		ROS_INFO ("    Acquisition Mode     = %s", global.isImplementedAcquisitionMode ? arv_device_get_string_feature_value (global.pDevice, "AcquisitionMode") : "(not implemented in camera)");
+		ROS_INFO ("    Trigger Mode         = %s", global.isImplementedTriggerMode ? arv_device_get_string_feature_value (global.pDevice, "TriggerMode") : "(not implemented in camera)");
+		ROS_INFO ("    Trigger Source       = %s", global.isImplementedTriggerSource ? arv_device_get_string_feature_value(global.pDevice, "TriggerSource") : "(not implemented in camera)");
 		ROS_INFO ("    Can set FrameRate:     %s", global.isImplementedAcquisitionFrameRate ? "True" : "False");
 		if (global.isImplementedAcquisitionFrameRate)
 		{
@@ -1116,6 +1118,7 @@ int main(int argc, char** argv)
 			{
 				ROS_WARN("Could not create image stream for %s.  Retrying...", pszGuid);
 				ros::Duration(1.0).sleep();
+			    ros::spinOnce();
 			}
 		}
 
