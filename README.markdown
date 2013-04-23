@@ -7,9 +7,11 @@ LGPL (like Aravis itself).
 
 ------------------------
 The basic command to run camera_aravis:
+
 	$ rosrun camera_aravis camnode
 
 To run it in a given namespace, which is the better way to do it:
+
 	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
 
@@ -56,10 +58,12 @@ camera_aravis supports multiple cameras, each of which may be specified on the
 command-line, or via parameter.  Runs one camera per node.
 
 To specify which camera to open, via the command-line:
+
 	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode Basler-21237813
 
 
 To specify which camera to open, via a parameter:
+
 	$ rosparam set cam1/guid Basler-21237813
 	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
