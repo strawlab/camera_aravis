@@ -7,10 +7,10 @@ LGPL (like Aravis itself).
 
 ------------------------
 The basic command to run camera_aravis:
-$ rosrun camera_aravis camnode
+	$ rosrun camera_aravis camnode
 
 To run it in a given namespace, which is the better way to do it:
-$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
+	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
 
 ------------------------
@@ -19,7 +19,7 @@ a variety of camera features via the ROS reconfigure_gui, including the followin
 * ExposureAuto         (string: Off, Once, Continuous)
 * GainAuto             (string: Off, Once, Continuous)
 * ExposureTimeAbs      (float)
-* GainRaw              (integer)
+* Gain                 (float)
 * AcquisitionMode      (string: Continuous, SingleFrame, MultiFrame)
 * AcquisitionFrameRate (float)
 * TriggerMode          (string: Off, On)
@@ -29,7 +29,10 @@ a variety of camera features via the ROS reconfigure_gui, including the followin
 * FocusPos             (integer)
 * mtu                  (integer)
 
-In addition to the above features, this driver now supports every feature of every camera,
+Note that the above are also the ROS parameter names of their respective feature.  You may
+set initial values for the camera by setting ROS parameters in the camera's namespace.
+
+In addition to the above features, this driver now supports (almost) every feature of every camera,
 you just have to know how the feature is specified; each GenICam-based camera contains 
 an XML file onboard, and by viewing this file you can determine which ROS parameters to set 
 for camera_aravis to write to the camera.  You can use arv-tool-0.2 to see the feature list 
@@ -42,10 +45,10 @@ called "BlackLevelRaw", and a string enum feature called "PixelFormat" that take
 must be, respectively, a bool, an integer and a string.  Also note that boolean features must 
 be specified as ROS params false/true, not as integer 0/1.
 
-$ rosparam set cam1/GammaEnable false
-$ rosparam set cam1/BlackLevelRaw 5
-$ rosparam set cam1/PixelFormat Mono12
-$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
+	$ rosparam set cam1/GammaEnable false
+	$ rosparam set cam1/BlackLevelRaw 5
+	$ rosparam set cam1/PixelFormat Mono12
+	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
 
 ------------------------
@@ -53,19 +56,19 @@ camera_aravis supports multiple cameras, each of which may be specified on the
 command-line, or via parameter.  Runs one camera per node.
 
 To specify which camera to open, via the command-line:
-$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode Basler-21237813
+	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode Basler-21237813
 
 
 To specify which camera to open, via a parameter:
-$ rosparam set cam1/guid Basler-21237813
-$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
+	$ rosparam set cam1/guid Basler-21237813
+	$ ROS_NAMESPACE=cam1 rosrun camera_aravis camnode
 
 
 ------------------------
 It supports the dynamic_reconfigure protocol, and once the node is running, you may adjust 
 its parameters by running the following and then manipulating the GUI:
 
-$ rosrun dynamic_reconfigure reconfigure_gui
+	$ rosrun dynamic_reconfigure reconfigure_gui
 
 
 ------------------------
