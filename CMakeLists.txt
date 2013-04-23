@@ -41,5 +41,6 @@ gencfg()
 #target_link_libraries(example ${PROJECT_NAME})
 
 rosbuild_add_executable(camnode src/camnode.cpp)
-target_link_libraries(camnode ${ARAVIS_LIBRARY} ${GLIB_LIBRARIES})
+#target_link_libraries(camnode ${ARAVIS_LIBRARY} ${GLIB_LIBRARIES})
+target_link_libraries(camnode libaravis-0.4.a glib-2.0 gobject-2.0 gio-2.0 xml2 gthread-2.0)
 include_directories(${ARAVIS_INCLUDE_PATH} ${GLIB_INCLUDE_DIRS})
