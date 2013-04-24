@@ -47,8 +47,6 @@
 //#define TUNING	// Allows tuning the gains for the timestamp controller.  Publishes output on topic /dt, and receives gains on params /kp, /ki, /kd
 
 
-//#define MIN(a,b)		(((a)<(b)) ? (a) : (b))
-//#define MAX(a,b)		(((a)>(b)) ? (a) : (b))
 #define CLIP(x,lo,hi)	MIN(MAX((lo),(x)),(hi))
 #define THROW_ERROR(m) throw std::string((m))
 
@@ -157,14 +155,6 @@ ArvGvStream *CreateStream(void)
 	unsigned int 	timeoutFrameRetention = 200;
 
 	
-//	// Set the network packet size.
-//	if (global.phNode->hasParam(ros::this_node::getName()+"/mtu"))
-//		global.phNode->getParam(ros::this_node::getName()+"/mtu", global.mtu);
-//	else
-//		global.mtu = 1500;
-//	arv_gv_device_set_packet_size((ArvGvDevice *)global.pDevice, global.mtu);
-
-
 	ArvGvStream *pStream = (ArvGvStream *)arv_device_create_stream (global.pDevice, NULL, NULL);
 	if (pStream)
 	{
@@ -173,7 +163,7 @@ ArvGvStream *CreateStream(void)
 
 
 		if (!ARV_IS_GV_STREAM (pStream))
-			ROS_WARN("stream is not GV_STREAM");
+			ROS_WARN("Stream is not a GV_STREAM");
 
 		if (bAutoBuffer)
 			g_object_set (pStream,
@@ -203,26 +193,6 @@ ArvGvStream *CreateStream(void)
 	return pStream;
 } // CreateStream()
 
-
-
-// ClipRoi()
-// Clip the given values such that the rect is a valid image size.
-void ClipRoi (int *pX, int *pY, int *pWidth, int *pHeight)
-{
-//    *pX = CLIP(*pX,      global.xRoiMin,      global.xRoiMax);
-//    *pY = CLIP(*pY,      global.yRoiMin,      global.yRoiMax);
-//
-//    if (*pWidth > 0)
-//    	*pWidth = CLIP(*pWidth,  global.widthRoiMin,  global.widthRoiMax - *pX);
-//    else
-//    	*pWidth = global.widthRoiMax - *pX;
-//
-//    if (*pHeight > 0)
-//    	*pHeight  = CLIP(*pHeight, global.heightRoiMin, global.heightRoiMax - *pY);
-//    else
-//    	*pHeight = global.heightRoiMax - *pY;
-//
-} // ClipRoi()
 
 
 void RosReconfigure_callback(Config &config, uint32_t level)
@@ -618,7 +588,7 @@ static void NewBuffer_callback (ArvStream *pStream, ApplicationData *pApplicatio
 
 static void ControlLost_callback (ArvGvDevice *pGvDevice)
 {
-    ROS_WARN ("Control lost.");
+    ROS_ERROR ("Control lost.");
 
     global.bCancel = TRUE;
 }
@@ -1054,8 +1024,7 @@ int main(int argc, char** argv)
 		global.xRoi=0; global.yRoi=0; global.widthRoi=0; global.heightRoi=0;
 		arv_camera_get_region (global.pCamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		global.config.ExposureTimeAbs 	= global.isImplementedExposureTimeAbs ? arv_device_get_float_feature_value (global.pDevice, "ExposureTimeAbs") : 0;
-		//global.config.Gain      		= global.isImplementedGain ? arv_device_get_integer_feature_value (global.pDevice, "GainRaw") : 0;
-		global.config.Gain      		= global.isImplementedGain ? arv_camera_get_gain (global.pCamera) : 0;
+		global.config.Gain      		= global.isImplementedGain ? arv_camera_get_gain (global.pCamera) : 0.0;
 		global.pszPixelformat   		= g_string_ascii_down(g_string_new(arv_device_get_string_feature_value(global.pDevice, "PixelFormat")))->str;
 		global.nBytesPixel      		= ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(arv_device_get_integer_feature_value(global.pDevice, "PixelFormat"));
 		global.config.FocusPos  		= global.isImplementedFocusPos ? arv_device_get_integer_feature_value (global.pDevice, "FocusPos") : 0;
@@ -1096,12 +1065,15 @@ int main(int argc, char** argv)
 			ROS_INFO ("    Gain                 = %f %% in range [%f,%f]", global.config.Gain, global.configMin.Gain, global.configMax.Gain);
 		}
 
+		ROS_INFO ("    Can set FocusPos:      %s", global.isImplementedFocusPos ? "True" : "False");
+
 		if (global.isImplementedMtu)
-			ROS_INFO ("    mtu (Network Packet Size) = %lu", arv_device_get_integer_feature_value(global.pDevice, "GevSCPSPacketSize"));
+			ROS_INFO ("    Network mtu          = %lu", arv_device_get_integer_feature_value(global.pDevice, "GevSCPSPacketSize"));
 
 		ROS_INFO ("    ---------------------------");
 
 
+//		// Print the tree of camera features, with their values.
 //		ROS_INFO ("    ----------------------------------------------------------------------------------");
 //		NODEEX		 nodeex;
 //		ArvGc	*pGenicam=0;
@@ -1181,7 +1153,7 @@ int main(int argc, char** argv)
 
     }
     else
-    	ROS_WARN ("No cameras detected.");
+    	ROS_ERROR ("No cameras detected.");
     
     delete global.phNode;
     
