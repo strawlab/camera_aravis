@@ -837,13 +837,7 @@ int main(int argc, char** argv)
     global.config = global.config.__getDefault__();
     global.idSoftwareTriggerTimer = 0;
 
-    ros::init(argc, argv, "camnode");
-    if (ros::this_node::getNamespace() == "/") 
-    {
-        ROS_WARN("[camnode] Started in the global namespace! This is probably wrong. Start camnode "
-                 "in the camera namespace.\nExample command-line usage:\n"
-                 "\t$ ROS_NAMESPACE=my_camera rosrun camera_aravis camnode\n");
-    }
+    ros::init(argc, argv, "camera");
     global.phNode = new ros::NodeHandle();
 
 
