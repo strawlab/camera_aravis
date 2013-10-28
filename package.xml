@@ -1,15 +1,22 @@
 <package>
   <name>camera_aravis</name>
-  <version>0.0.1</version>
-  <description>camera_aravis</description>
-  <maintainer email="seve@unknow.com">Steve Safarik</maintainer>
+  <version>2.0.0</version>
+  <description>camera_aravis: An ethernet camera driver for ROS.</description>
 
-  <license>LGPL</license>
+  <maintainer email="stevesafarik@gmail.com">Steve Safarik</maintainer>
 
+  <author email="stevesafarik@gmail.com">Steve Safarik</author>
+  <author email="andrew.straw@imp.ac.at">Andrew Straw</author>
+
+  <license>LGPLv2</license>
+
+  <url type="website">http://github.com/ssafarik/camera_aravis</url>
+  
   <author>strawlab</author>
   <author>Steve Safarik</author>
 
   <buildtool_depend>catkin</buildtool_depend>
+  
   <build_depend>roscpp</build_depend>
   <build_depend>sensor_msgs</build_depend>
   <build_depend>image_transport</build_depend>
@@ -17,6 +24,7 @@
   <build_depend>dynamic_reconfigure</build_depend>
   <build_depend>driver_base</build_depend>
   <build_depend>tf</build_depend>
+  
   <run_depend>roscpp</run_depend>
   <run_depend>sensor_msgs</run_depend>
   <run_depend>image_transport</run_depend>
