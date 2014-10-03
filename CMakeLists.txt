@@ -1,44 +1,24 @@
-cmake_minimum_required(VERSION 2.4.6)
-include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
-set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/CMakeModules )
-FIND_PACKAGE(Aravis)
+# http://ros.org/doc/groovy/api/catkin/html/user_guide/supposed.html
+cmake_minimum_required(VERSION 2.8.3)
+project(camera_aravis)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules)
+find_package(catkin REQUIRED COMPONENTS roscpp sensor_msgs image_transport camera_info_manager dynamic_reconfigure driver_base tf dynamic_reconfigure)
+find_package(Aravis REQUIRED)
+find_package(GLIB2 REQUIRED)
 
-include(FindPkgConfig)
-pkg_check_modules(GLIB glib-2.0)
+generate_dynamic_reconfigure_options(cfg/CameraAravisConfig.cfg)
+catkin_package(
+    DEPENDS Aravis GLIB2
+    CATKIN_DEPENDS roscpp sensor_msgs image_transport camera_info_manager dynamic_reconfigure driver_base tf
+    INCLUDE_DIRS
+    LIBRARIES
+)
 
-# Set the build type.  Options are:
-#  Coverage       : w/ debug symbols, w/o optimization, w/ code-coverage
-#  Debug          : w/ debug symbols, w/o optimization
-#  Release        : w/o debug symbols, w/ optimization
-#  RelWithDebInfo : w/ debug symbols, w/ optimization
-#  MinSizeRel     : w/o debug symbols, w/ optimization, stripped binaries
-#set(ROS_BUILD_TYPE RelWithDebInfo)
+include_directories(cfg/cpp ${catkin_INCLUDE_DIRS} ${ARAVIS_INCLUDE_PATH} ${GLIB2_INCLUDE_DIRS})
 
-rosbuild_init()
+message(${ARAVIS_LIBRARY})
 
-#set the default path for built executables to the "bin" directory
-set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
-#set the default path for built libraries to the "lib" directory
-set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+add_executable(camnode src/camnode.cpp)
 
-# add dynamic reconfigure api
-rosbuild_find_ros_package(dynamic_reconfigure)
-include(${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake)
-gencfg()
-
-#uncomment if you have defined messages
-#rosbuild_genmsg()
-#uncomment if you have defined services
-#rosbuild_gensrv()
-
-#common commands for building c++ executables and libraries
-#rosbuild_add_library(${PROJECT_NAME} src/example.cpp)
-#target_link_libraries(${PROJECT_NAME} another_library)
-#rosbuild_add_boost_directories()
-#rosbuild_link_boost(${PROJECT_NAME} thread)
-#rosbuild_add_executable(example examples/example.cpp)
-#target_link_libraries(example ${PROJECT_NAME})
-
-rosbuild_add_executable(camnode src/camnode.cpp)
-target_link_libraries(camnode ${ARAVIS_LIBRARY} ${GLIB_LIBRARIES})
-include_directories(${ARAVIS_INCLUDE_PATH} ${GLIB_INCLUDE_DIRS})
+target_link_libraries(camnode ${catkin_LIBRARIES} ${ARAVIS_LIBRARY} glib-2.0 gmodule-2.0 gobject-2.0)
+add_dependencies(camnode ${PROJECT_NAME}_gencfg)
