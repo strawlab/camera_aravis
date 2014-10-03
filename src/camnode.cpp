@@ -841,7 +841,7 @@ int main(int argc, char** argv)
     global.phNode = new ros::NodeHandle();
 
 
-    g_type_init ();
+    //g_type_init ();
 
     // Print out some useful info.
     ROS_INFO ("Attached cameras:");
